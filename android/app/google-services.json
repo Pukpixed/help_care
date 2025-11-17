@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "203044905421",
+    "project_id": "helpcare11-3b153",
+    "storage_bucket": "helpcare11-3b153.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:203044905421:android:0d6ad910027c693a6f6484",
+        "android_client_info": {
+          "package_name": "com.example.helpcare"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBI3KuGw-TdMZT0z4AEGvPtHJjRzwtx4BY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
