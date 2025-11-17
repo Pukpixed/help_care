@@ -6,10 +6,6 @@
 
 #include "generated_plugin_registrant.h"
 
-<<<<<<< HEAD
-
-void fl_register_plugins(FlPluginRegistry* registry) {
-=======
 #include <audioplayers_linux/audioplayers_linux_plugin.h>
 #include <file_selector_linux/file_selector_plugin.h>
 #include <printing/printing_plugin.h>
@@ -28,5 +24,4 @@ void fl_register_plugins(FlPluginRegistry* registry) {
   g_autoptr(FlPluginRegistrar) url_launcher_linux_registrar =
       fl_plugin_registry_get_registrar_for_plugin(registry, "UrlLauncherPlugin");
   url_launcher_plugin_register_with_registrar(url_launcher_linux_registrar);
->>>>>>> c3bd551 (Initial commit: help_care app)
 }

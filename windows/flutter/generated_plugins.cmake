@@ -3,14 +3,6 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
-<<<<<<< HEAD
-  cloud_firestore
-  connectivity_plus
-  firebase_core
-)
-
-list(APPEND FLUTTER_FFI_PLUGIN_LIST
-=======
   audioplayers_windows
   cloud_firestore
   connectivity_plus
@@ -26,7 +18,6 @@ list(APPEND FLUTTER_FFI_PLUGIN_LIST
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
   flutter_local_notifications_windows
->>>>>>> c3bd551 (Initial commit: help_care app)
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

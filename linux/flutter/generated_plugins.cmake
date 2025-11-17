@@ -3,13 +3,10 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
-<<<<<<< HEAD
-=======
   audioplayers_linux
   file_selector_linux
   printing
   url_launcher_linux
->>>>>>> c3bd551 (Initial commit: help_care app)
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

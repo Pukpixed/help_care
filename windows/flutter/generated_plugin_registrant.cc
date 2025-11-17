@@ -6,13 +6,6 @@
 
 #include "generated_plugin_registrant.h"
 
-<<<<<<< HEAD
-#include <cloud_firestore/cloud_firestore_plugin_c_api.h>
-#include <connectivity_plus/connectivity_plus_windows_plugin.h>
-#include <firebase_core/firebase_core_plugin_c_api.h>
-
-void RegisterPlugins(flutter::PluginRegistry* registry) {
-=======
 #include <audioplayers_windows/audioplayers_windows_plugin.h>
 #include <cloud_firestore/cloud_firestore_plugin_c_api.h>
 #include <connectivity_plus/connectivity_plus_windows_plugin.h>
@@ -28,15 +21,10 @@ void RegisterPlugins(flutter::PluginRegistry* registry) {
 void RegisterPlugins(flutter::PluginRegistry* registry) {
   AudioplayersWindowsPluginRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("AudioplayersWindowsPlugin"));
->>>>>>> c3bd551 (Initial commit: help_care app)
   CloudFirestorePluginCApiRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("CloudFirestorePluginCApi"));
   ConnectivityPlusWindowsPluginRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("ConnectivityPlusWindowsPlugin"));
-<<<<<<< HEAD
-  FirebaseCorePluginCApiRegisterWithRegistrar(
-      registry->GetRegistrarForPlugin("FirebaseCorePluginCApi"));
-=======
   FileSelectorWindowsRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("FileSelectorWindows"));
   FirebaseAuthPluginCApiRegisterWithRegistrar(
@@ -53,5 +41,4 @@ void RegisterPlugins(flutter::PluginRegistry* registry) {
       registry->GetRegistrarForPlugin("SharePlusWindowsPluginCApi"));
   UrlLauncherWindowsRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("UrlLauncherWindows"));
->>>>>>> c3bd551 (Initial commit: help_care app)
 }
