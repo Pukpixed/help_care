@@ -15,14 +15,12 @@ dependencies:
   connectivity_plus: ^7.0.0
   fluttertoast: ^9.0.0
 
-  # ของเดิมที่มีอยู่แล้ว
   carousel_slider: ^5.0.0
-  google_fonts: ^6.1.0
+  google_fonts: ^7.0.2
 
-  # ชุด Firebase + ฟีเจอร์ที่เราใช้ในโปรเจกต์
-  firebase_core: ^4.1.1
-  firebase_auth: ^6.1.0
-  cloud_firestore: ^6.0.2
+  firebase_core: ^4.3.0
+  firebase_auth: ^6.1.3
+  cloud_firestore: ^6.1.1
   firebase_storage: ^13.0.2
   image_picker: ^1.2.0
   file_picker: ^10.3.3
@@ -31,17 +29,29 @@ dependencies:
   path_provider: ^2.1.4
   share_plus: ^12.0.1
   pdf: ^3.11.0
+
+  # ✅ local notifications + timezone (ใช้เวอร์ชันเดียว)
   flutter_local_notifications: ^19.5.0
-  android_alarm_manager_plus: ^5.0.0
   timezone: ^0.10.1
-  fl_chart: ^0.66.2
-  audioplayers: ^5.2.1
+  android_alarm_manager_plus: ^5.0.0
+
+  fl_chart: ^1.1.1
+  audioplayers: ^6.5.1
   open_filex: ^4.5.0
   http: ^1.2.0
+
+  # ✅ เพิ่มสำหรับระบบข่าวสาร
+  xml: ^6.5.0
+  webview_flutter: ^4.10.0
+  html: ^0.15.4
+
   qr_flutter: ^4.1.0
-  mobile_scanner: ^3.0.0
-  geolocator: ^13.0.1
+  mobile_scanner: ^7.1.4
+  geolocator: ^14.0.2
   geocoding: ^4.0.0
+  firebase_messaging: ^16.1.0
+  flutter_screenutil: ^5.9.3
+  google_sign_in: ^6.2.1
 
 dev_dependencies:
   flutter_test:

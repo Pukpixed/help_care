@@ -12,6 +12,9 @@ import 'care_log_screen.dart';
 class CareDashboardScreen extends StatefulWidget {
   final String patientId;
 
+  /// ✅ เพิ่ม: ถ้าเอาหน้านี้ไปวางใน Tab (หลายผู้ป่วย) ให้ปิด AppBar ซ้อน
+  final bool showAppBar;
+
   /// เป้าหมายต่อวัน (ปรับได้ตอนเรียกหน้า)
   final int targetWaterPerDay; // แก้ว
   final int targetMedsPerDay; // ครั้งให้ยา
@@ -20,6 +23,7 @@ class CareDashboardScreen extends StatefulWidget {
   const CareDashboardScreen({
     super.key,
     required this.patientId,
+    this.showAppBar = true, // ✅ เพิ่ม
     this.targetWaterPerDay = 8,
     this.targetMedsPerDay = 2,
     this.targetPhysioPerDay = 1,
@@ -84,7 +88,23 @@ class _CareDashboardScreenState extends State<CareDashboardScreen> {
   // สีหลักโทนแดงเข้ม (เผื่อใช้ต่อ)
   static const Color maroon = Color(0xFF660F24);
 
-  final _col = FirebaseFirestore.instance.collection('care_logs');
+  /// ✅ NEW: patients/{patientId}/care_logs
+  CollectionReference<Map<String, dynamic>> get _newCol => FirebaseFirestore
+      .instance
+      .collection('patients')
+      .doc(widget.patientId)
+      .collection('care_logs');
+
+  /// ✅ LEGACY: care_logs (root) — ระหว่างช่วงย้ายข้อมูล
+  final CollectionReference<Map<String, dynamic>> _legacyCol = FirebaseFirestore
+      .instance
+      .collection('care_logs');
+
+  /// ✅ ระหว่างช่วงย้าย: อ่านทั้งใหม่ + เก่า
+  static const bool _enableLegacyRead = true;
+
+  /// legacy โหมดสำรอง (ไม่ใช้ index)
+  bool _legacyNoIndexFallback = false;
 
   List<_CareType> _types = [];
   bool _loadingTypes = true;
@@ -103,6 +123,26 @@ class _CareDashboardScreenState extends State<CareDashboardScreen> {
   void initState() {
     super.initState();
     _listenTypes();
+  }
+
+  @override
+  void didUpdateWidget(covariant CareDashboardScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.patientId != widget.patientId) {
+      _typesSub?.cancel();
+      _typesSub = null;
+
+      setState(() {
+        _types = [];
+        _loadingTypes = true;
+        _legacyNoIndexFallback = false;
+        // ถ้าอยาก reset ช่วงเวลาเมื่อเปลี่ยนคน ให้ปลด comment:
+        // _range = _Range.week;
+        // _anchor = DateTime.now();
+      });
+
+      _listenTypes();
+    }
   }
 
   @override
@@ -172,15 +212,40 @@ class _CareDashboardScreenState extends State<CareDashboardScreen> {
     }
   }
 
+  /// ✅ merge docs ใหม่ + legacy แล้วเรียงเวลา desc
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _mergeAndSort(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> a,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> b,
+  ) {
+    final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    out.addAll(a);
+    out.addAll(b);
+
+    out.sort((x, y) {
+      final tx = (x.data()['time'] as Timestamp?);
+      final ty = (y.data()['time'] as Timestamp?);
+      final vx = tx?.millisecondsSinceEpoch ?? 0;
+      final vy = ty?.millisecondsSinceEpoch ?? 0;
+      return vy.compareTo(vx);
+    });
+    return out;
+  }
+
+  /// ดึงลิงก์สร้าง Index ออกจากข้อความ error ของ Firestore
+  String? _extractIndexUrl(String msg) {
+    final re = RegExp(r'(https:\/\/console\.firebase\.google\.com\/[^\s]+)');
+    final m = re.firstMatch(msg);
+    return m?.group(1);
+  }
+
   // ─── จัดหมวด ───
   String _categoryOf(_CareType t) {
     final k = t.key.toLowerCase();
     final l = t.label.toLowerCase();
     bool any(Iterable<String> a) =>
         a.any((x) => k.contains(x) || l.contains(x));
-    if (any(['meal', 'eat', 'food', 'ข้าว', 'อาหาร', 'set_meal'])) {
+    if (any(['meal', 'eat', 'food', 'ข้าว', 'อาหาร', 'set_meal']))
       return 'อาหาร';
-    }
     if (any(['drink', 'water', 'ดื่ม', 'น้ำ', 'local_drink'])) return 'ดื่มน้ำ';
     if (any(['med', 'ยา', 'dose', 'vacc'])) return 'ยา';
     if (any(['turn', 'position', 'พลิก', 'rotate'])) return 'พลิกตัว';
@@ -188,9 +253,7 @@ class _CareDashboardScreenState extends State<CareDashboardScreen> {
     if (any(['physio', 'exercise', 'กายภาพ', 'fitness'])) return 'กายภาพ';
     if (any(['sleep', 'nap', 'นอน'])) return 'นอนหลับ';
     if (any(['bp', 'vital', 'heart', 'ชีพ', 'blood'])) return 'สัญญาณชีพ';
-    if (any(['shower', 'clean', 'อาบน้ำ', 'ทำความสะอาด'])) {
-      return 'ทำความสะอาด';
-    }
+    if (any(['shower', 'clean', 'อาบน้ำ', 'ทำความสะอาด'])) return 'ทำความสะอาด';
     return 'อื่น ๆ';
   }
 
@@ -295,55 +358,69 @@ class _CareDashboardScreenState extends State<CareDashboardScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final (s, e) = _rangeStartEnd();
+  Widget _buildDashboardFromDocs(
+    BuildContext context,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docsRaw,
+  ) {
+    // sort desc by time (เผื่อกรณี legacy fallback ไม่ orderBy)
+    var docs = [...docsRaw];
+    docs.sort((a, b) {
+      final ta = (a.data()['time'] as Timestamp?);
+      final tb = (b.data()['time'] as Timestamp?);
+      final va = ta?.millisecondsSinceEpoch ?? 0;
+      final vb = tb?.millisecondsSinceEpoch ?? 0;
+      return vb.compareTo(va);
+    });
 
-    // ไม่ใช้ composite index: ดึงตามช่วงเวลาแล้วกรอง patientId ฝั่งแอป
-    final q = _col
-        .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(s))
-        .where('time', isLessThan: Timestamp.fromDate(e));
-
-    return Scaffold(
-      // พื้นหลังโทนแดงของแอป
-      backgroundColor: const Color.fromARGB(255, 202, 202, 202),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        foregroundColor: const Color.fromARGB(255, 255, 255, 255),
-        systemOverlayStyle: const SystemUiOverlayStyle(
-          statusBarColor: Colors.transparent,
-          statusBarIconBrightness: Brightness.light,
-          statusBarBrightness: Brightness.dark,
-        ),
-        title: const Text(
-          'สรุปกิจวัตร',
-          style: TextStyle(color: Color.fromARGB(255, 255, 255, 255)),
-        ),
-        // ไล่สีพื้นหลัง AppBar
-        flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                Color(0xFF7B2D2D), // maroon
-                Color(0xFFF24455), // red
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
+    if (docs.isEmpty) {
+      return _NoDataCard(
+        rangeText: _rangeLabel(),
+        onAdd: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CareLogScreen(patientId: widget.patientId),
           ),
         ),
-        actions: [
-          IconButton(onPressed: () {}, icon: const Icon(Icons.search)),
-          const SizedBox(width: 8),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(84),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      );
+    }
+
+    // สรุป
+    final byType = ReportUtils.aggregateByType(docs);
+    final grouped = _groupTypes();
+    final byGroup = <String, int>{};
+    grouped.forEach((g, list) {
+      byGroup[g] = list.fold(0, (s, t) => s + (byType[t.key] ?? 0));
+    });
+    final total = docs.length;
+
+    // donut
+    final segs = byGroup.entries.where((e) => e.value > 0).toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final showSegs = segs.take(4).toList();
+    final shownSum = showSegs.fold<int>(0, (s, e) => s + e.value);
+    final others = math.max(0, total - shownSum);
+    if (others > 0) showSegs.add(MapEntry('อื่น ๆ', others));
+
+    final days = _dailyCounts(docs);
+    final maxDay = days.fold<int>(0, (m, e) => e.count > m ? e.count : m);
+
+    // เป้าหมาย
+    final waterPct = _percentFor('ดื่มน้ำ', byType);
+    final medsPct = _percentFor('ยา', byType);
+    final physioPct = _percentFor('กายภาพ', byType);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      children: [
+        // ✅ ถ้า embed ในแท็บ (showAppBar=false) ให้โชว์แถบเลือกช่วงด้านบน
+        if (!widget.showAppBar) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF7B2D2D),
+              borderRadius: BorderRadius.circular(16),
+            ),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
               children: [
                 Row(
                   children: [
@@ -381,7 +458,7 @@ class _CareDashboardScreenState extends State<CareDashboardScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w800,
                       color: Colors.white,
                     ),
                   ),
@@ -389,244 +466,318 @@ class _CareDashboardScreenState extends State<CareDashboardScreen> {
               ],
             ),
           ),
+          const SizedBox(height: 12),
+        ],
+
+        _DonutCard(
+          total: total,
+          segments: showSegs
+              .map(
+                (e) => _DonutSegment(
+                  label: e.key,
+                  value: e.value.toDouble(),
+                  color: _pickColor(e.key),
+                ),
+              )
+              .toList(),
         ),
-      ),
-      body: _loadingTypes
-          ? const Center(child: CircularProgressIndicator())
-          : (_types.isEmpty
-                ? const _NoTypeCard()
-                : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: q.snapshots(),
-                    builder: (_, snap) {
-                      if (snap.hasError) {
-                        return const _ErrorCard(
-                          text: 'โหลดข้อมูลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
-                        );
-                      }
-                      if (!snap.hasData) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
+        const SizedBox(height: 16),
 
-                      // กรอง/เรียงฝั่งแอป
-                      var docs = [...snap.data!.docs]
-                          .where(
-                            (d) =>
-                                (d.data()['patientId'] ?? '') ==
-                                widget.patientId,
-                          )
-                          .toList();
-                      docs.sort((a, b) {
-                        final ta = (a.data()['time'] as Timestamp?);
-                        final tb = (b.data()['time'] as Timestamp?);
-                        final va = ta?.millisecondsSinceEpoch ?? 0;
-                        final vb = tb?.millisecondsSinceEpoch ?? 0;
-                        return vb.compareTo(va);
-                      });
+        const _SectionHeader(title: 'ความถี่การบันทึก (รายวัน)'),
+        const SizedBox(height: 10),
+        _BarChart(days: days, maxValue: maxDay),
+        const SizedBox(height: 18),
 
-                      if (docs.isEmpty) {
-                        return _NoDataCard(
-                          rangeText: _rangeLabel(),
-                          onAdd: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  CareLogScreen(patientId: widget.patientId),
-                            ),
-                          ),
-                        );
-                      }
+        const _SectionHeader(title: 'ความคืบหน้าตามเป้าหมาย'),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            _GoalPill(
+              icon: Icons.local_drink_outlined,
+              label: 'ดื่มน้ำ',
+              percent: waterPct,
+              color: const Color(0xFF38BDF8),
+            ),
+            _GoalPill(
+              icon: Icons.medication_outlined,
+              label: 'ยา',
+              percent: medsPct,
+              color: const Color(0xFFF43F5E),
+            ),
+            _GoalPill(
+              icon: Icons.fitness_center_outlined,
+              label: 'กายภาพ',
+              percent: physioPct,
+              color: const Color(0xFF22C55E),
+            ),
+          ],
+        ),
 
-                      // สรุป
-                      final byType = ReportUtils.aggregateByType(docs);
-                      final grouped = _groupTypes();
-                      final byGroup = <String, int>{};
-                      grouped.forEach((g, list) {
-                        byGroup[g] = list.fold(
-                          0,
-                          (s, t) => s + (byType[t.key] ?? 0),
-                        );
-                      });
-                      final total = docs.length;
+        const SizedBox(height: 18),
 
-                      // donut
-                      final segs =
-                          byGroup.entries.where((e) => e.value > 0).toList()
-                            ..sort((a, b) => b.value.compareTo(a.value));
-                      final showSegs = segs.take(4).toList();
-                      final shownSum = showSegs.fold<int>(
-                        0,
-                        (s, e) => s + e.value,
-                      );
-                      final others = math.max(0, total - shownSum);
-                      if (others > 0) {
-                        showSegs.add(MapEntry('อื่น ๆ', others));
-                      }
+        const _SectionHeader(title: 'ภาพรวมตามหมวด'),
+        const SizedBox(height: 10),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: byGroup.entries.where((e) => e.value > 0).length,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            childAspectRatio: 2.6,
+          ),
+          itemBuilder: (_, i) {
+            final e = byGroup.entries.where((e) => e.value > 0).toList()[i];
+            return _MiniStatCard(
+              title: e.key,
+              count: e.value,
+              color: _pickColor(e.key),
+              icon: _pickIcon(e.key),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CareLogScreen(patientId: widget.patientId),
+                  ),
+                );
+              },
+            );
+          },
+        ),
+        const SizedBox(height: 18),
 
-                      final days = _dailyCounts(docs);
-                      final maxDay = days.fold<int>(
-                        0,
-                        (m, e) => e.count > m ? e.count : m,
-                      );
-
-                      // เป้าหมาย
-                      final waterPct = _percentFor('ดื่มน้ำ', byType);
-                      final medsPct = _percentFor('ยา', byType);
-                      final physioPct = _percentFor('กายภาพ', byType);
-
-                      return ListView(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                        children: [
-                          _DonutCard(
-                            total: total,
-                            segments: showSegs
-                                .map(
-                                  (e) => _DonutSegment(
-                                    label: e.key,
-                                    value: e.value.toDouble(),
-                                    color: _pickColor(e.key),
-                                  ),
-                                )
-                                .toList(),
-                          ),
-                          const SizedBox(height: 16),
-
-                          const _SectionHeader(
-                            title: 'ความถี่การบันทึก (รายวัน)',
-                          ),
-                          const SizedBox(height: 10),
-                          _BarChart(days: days, maxValue: maxDay),
-                          const SizedBox(height: 18),
-
-                          const _SectionHeader(title: 'ความคืบหน้าตามเป้าหมาย'),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            children: [
-                              _GoalPill(
-                                icon: Icons.local_drink_outlined,
-                                label: 'ดื่มน้ำ',
-                                percent: waterPct,
-                                color: const Color(0xFF38BDF8),
-                              ),
-                              _GoalPill(
-                                icon: Icons.medication_outlined,
-                                label: 'ยา',
-                                percent: medsPct,
-                                color: const Color(0xFFF43F5E),
-                              ),
-                              _GoalPill(
-                                icon: Icons.fitness_center_outlined,
-                                label: 'กายภาพ',
-                                percent: physioPct,
-                                color: const Color(0xFF22C55E),
-                              ),
-                            ],
-                          ),
-
-                          const SizedBox(height: 18),
-
-                          const _SectionHeader(title: 'ภาพรวมตามหมวด'),
-                          const SizedBox(height: 10),
-                          GridView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: byGroup.entries
-                                .where((e) => e.value > 0)
-                                .length,
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 2,
-                                  crossAxisSpacing: 12,
-                                  mainAxisSpacing: 12,
-                                  childAspectRatio: 2.6,
-                                ),
-                            itemBuilder: (_, i) {
-                              final e = byGroup.entries
-                                  .where((e) => e.value > 0)
-                                  .toList()[i];
-                              return _MiniStatCard(
-                                title: e.key,
-                                count: e.value,
-                                color: _pickColor(e.key),
-                                icon: _pickIcon(e.key),
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => CareLogScreen(
-                                        patientId: widget.patientId,
-                                      ),
-                                    ),
-                                  );
-                                },
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 18),
-
-                          const _SectionHeader(title: 'ชนิดที่บันทึกบ่อย'),
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            height: 120,
-                            child: ListView(
-                              scrollDirection: Axis.horizontal,
-                              children: [
-                                for (final ent
-                                    in (byType.entries
-                                            .where((e) => e.value > 0)
-                                            .toList()
-                                          ..sort(
-                                            (a, b) =>
-                                                b.value.compareTo(a.value),
-                                          ))
-                                        .take(6))
-                                  _ChipCard(
-                                    title:
-                                        _types
-                                            .where((t) => t.key == ent.key)
-                                            .firstOrNull
-                                            ?.label ??
-                                        ent.key,
-                                    value: '${ent.value}',
-                                    color: _pickColor(
-                                      _categoryOf(
-                                        _types
-                                                .where((t) => t.key == ent.key)
-                                                .firstOrNull ??
-                                            _CareType(
-                                              ent.key,
-                                              ent.key,
-                                              '',
-                                              0xFF94A3B8,
-                                            ),
-                                      ),
-                                    ),
-                                    icon:
-                                        _types
-                                            .where((t) => t.key == ent.key)
-                                            .firstOrNull
-                                            ?.iconData ??
-                                        Icons.widgets_outlined,
-                                    onTap: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => CareLogScreen(
-                                            patientId: widget.patientId,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      );
-                    },
-                  )),
+        const _SectionHeader(title: 'ชนิดที่บันทึกบ่อย'),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 120,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [
+              for (final ent
+                  in (byType.entries.where((e) => e.value > 0).toList()
+                        ..sort((a, b) => b.value.compareTo(a.value)))
+                      .take(6))
+                _ChipCard(
+                  title:
+                      _types
+                          .where((t) => t.key == ent.key)
+                          .firstOrNull
+                          ?.label ??
+                      ent.key,
+                  value: '${ent.value}',
+                  color: _pickColor(
+                    _categoryOf(
+                      _types.where((t) => t.key == ent.key).firstOrNull ??
+                          _CareType(ent.key, ent.key, '', 0xFF94A3B8),
+                    ),
+                  ),
+                  icon:
+                      _types
+                          .where((t) => t.key == ent.key)
+                          .firstOrNull
+                          ?.iconData ??
+                      Icons.widgets_outlined,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            CareLogScreen(patientId: widget.patientId),
+                      ),
+                    );
+                  },
+                ),
+            ],
+          ),
+        ),
+      ],
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final (s, e) = _rangeStartEnd();
+
+    // ✅ NEW (subcollection) — ไม่ต้อง where patientId
+    final qNew = _newCol
+        .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(s))
+        .where('time', isLessThan: Timestamp.fromDate(e))
+        .orderBy('time', descending: true);
+
+    // ✅ LEGACY (root)
+    final qLegacyNormal = _legacyCol
+        .where('patientId', isEqualTo: widget.patientId)
+        .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(s))
+        .where('time', isLessThan: Timestamp.fromDate(e))
+        .orderBy('time', descending: true);
+
+    final qLegacyFallback = _legacyCol
+        .where('patientId', isEqualTo: widget.patientId)
+        .limit(50);
+
+    final legacyStream =
+        (_legacyNoIndexFallback ? qLegacyFallback : qLegacyNormal).snapshots();
+
+    final bg = const Color.fromARGB(255, 202, 202, 202);
+
+    final body = _loadingTypes
+        ? const Center(child: CircularProgressIndicator())
+        : (_types.isEmpty
+              ? const _NoTypeCard()
+              : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: qNew.snapshots(),
+                  builder: (_, newSnap) {
+                    if (newSnap.hasError) {
+                      return const _ErrorCard(
+                        text: 'โหลดข้อมูลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
+                      );
+                    }
+                    if (!newSnap.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    final newDocs = newSnap.data!.docs;
+
+                    if (!_enableLegacyRead) {
+                      return _buildDashboardFromDocs(context, newDocs);
+                    }
+
+                    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: legacyStream,
+                      builder: (_, oldSnap) {
+                        // legacy error แต่ new มี -> แสดง new ไปก่อน
+                        if (oldSnap.hasError) {
+                          if (newDocs.isNotEmpty) {
+                            return _buildDashboardFromDocs(context, newDocs);
+                          }
+
+                          final msg = oldSnap.error.toString();
+                          final link = _extractIndexUrl(msg);
+                          return _LegacyIndexErrorCard(
+                            message: msg,
+                            indexUrl: link,
+                            onUseFallback: () =>
+                                setState(() => _legacyNoIndexFallback = true),
+                          );
+                        }
+
+                        // legacy ยังไม่มา แต่ new มี -> แสดง new ไปก่อน
+                        if (!oldSnap.hasData) {
+                          if (newDocs.isNotEmpty) {
+                            return _buildDashboardFromDocs(context, newDocs);
+                          }
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
+
+                        final merged = _mergeAndSort(
+                          newDocs,
+                          oldSnap.data!.docs,
+                        );
+                        return _buildDashboardFromDocs(context, merged);
+                      },
+                    );
+                  },
+                ));
+
+    // ✅ ถ้าเป็นหน้าเดี่ยว: มี AppBar เดิม
+    if (widget.showAppBar) {
+      return Scaffold(
+        backgroundColor: bg,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          foregroundColor: const Color.fromARGB(255, 255, 255, 255),
+          systemOverlayStyle: const SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: Brightness.light,
+            statusBarBrightness: Brightness.dark,
+          ),
+          title: const Text(
+            'สรุปกิจวัตร',
+            style: TextStyle(color: Color.fromARGB(255, 255, 255, 255)),
+          ),
+          flexibleSpace: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF7B2D2D), Color(0xFFF24455)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+          ),
+          actions: [
+            IconButton(onPressed: () {}, icon: const Icon(Icons.search)),
+            const SizedBox(width: 8),
+          ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(84),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SegmentedButton<_Range>(
+                          segments: const [
+                            ButtonSegment(
+                              value: _Range.day,
+                              label: Text('วัน'),
+                            ),
+                            ButtonSegment(
+                              value: _Range.week,
+                              label: Text('สัปดาห์'),
+                            ),
+                            ButtonSegment(
+                              value: _Range.month,
+                              label: Text('เดือน'),
+                            ),
+                          ],
+                          selected: {_range},
+                          onSelectionChanged: (v) =>
+                              setState(() => _range = v.first),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            setState(() => _anchor = DateTime.now()),
+                        icon: const Icon(Icons.today_outlined),
+                        label: const Text('วันนี้'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      _rangeLabel(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        body: body,
+      );
+    }
+
+    // ✅ ถ้า embed ในแท็บ: คืนเฉพาะ body (ไม่ทำ AppBar ซ้อน)
+    return Container(color: bg, child: body);
   }
 }
 
@@ -679,6 +830,62 @@ class _ErrorCard extends StatelessWidget {
                 text,
                 style: const TextStyle(color: Color(0xFFD14343)),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LegacyIndexErrorCard extends StatelessWidget {
+  final String message;
+  final String? indexUrl;
+  final VoidCallback onUseFallback;
+
+  const _LegacyIndexErrorCard({
+    required this.message,
+    required this.indexUrl,
+    required this.onUseFallback,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFFBEB),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFFDE68A)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Color(0xFFB45309)),
+            const SizedBox(height: 10),
+            const Text(
+              'Legacy ต้องสร้าง Composite Index',
+              style: TextStyle(fontWeight: FontWeight.w800),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            SelectableText(
+              message,
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+            if (indexUrl != null) ...[
+              const SizedBox(height: 8),
+              SelectableText(
+                indexUrl!,
+                style: const TextStyle(color: Colors.blue),
+              ),
+            ],
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: onUseFallback,
+              child: const Text('แสดงข้อมูลชั่วคราว (ไม่ใช้ดัชนี)'),
             ),
           ],
         ),

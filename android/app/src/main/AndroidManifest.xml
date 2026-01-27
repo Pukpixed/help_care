@@ -1,26 +1,33 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- เครือข่าย -->
+    <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- ตำแหน่ง (สำหรับ Geolocator / SOS / ที่อยู่จาก GPS) -->
+    <!-- Location -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <!-- ถ้าจะเก็บตำแหน่งตอนปิดแอป/ทำงานพื้นหลัง ค่อยเปิดบรรทัดนี้เพิ่ม
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-    -->
 
-    <!-- แจ้งเตือน (Android 13+) -->
+    <!-- Notifications (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- สำหรับตั้งปลุกแบบ exact (ใช้กับ alarm manager) -->
+    <!-- Alarm (exact) -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+    <!-- Wake lock -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:name="${applicationName}"
         android:label="helpcare"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
+
+        <!-- FCM default channel id -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="high_importance_channel" />
 
         <activity
             android:name=".MainActivity"
@@ -32,7 +39,6 @@
             android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode">
 
-            <!-- ธีมเริ่มต้นก่อน Flutter โหลดขึ้นมา -->
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
@@ -44,14 +50,40 @@
 
         </activity>
 
-        <!-- อย่าลบ ใช้โดย Flutter tool -->
+        <!-- Flutter v2 embedding -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- ✅ (แนะนำ) ถ้าใช้ flutter_local_notifications แล้วเจอ error เกี่ยวกับ receiver
+             โดยปกติไม่ต้องใส่เอง แต่บางโปรเจกต์/บางเวอร์ชันจะช่วยให้ stable -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"
+            android:exported="false"
+            tools:node="merge" />
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
+            android:exported="false"
+            tools:node="merge">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
-    <!-- ส่วนนี้มาจาก template ของ Flutter -->
+    <!-- Queries: url_launcher เปิดเว็บบน Android 11+ -->
     <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="http" />
+        </intent>
+
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />

@@ -1,0 +1,2 @@
+C:/Users/rmena/Documents/helpcare/android/app/.cxx/release/3o694469/x86_64/CMakeFiles/edit_cache.dir
+C:/Users/rmena/Documents/helpcare/android/app/.cxx/release/3o694469/x86_64/CMakeFiles/rebuild_cache.dir

@@ -103,6 +103,40 @@ class _PatientsDetailViewState extends State<PatientsDetailView> {
     return note.isEmpty ? name : '$name • $note';
   }
 
+  // ───────────────── presets ─────────────────
+  static const List<String> kConditionPresets = [
+    'ความดันโลหิตสูง',
+    'เบาหวาน',
+    'ไขมันในเลือดสูง',
+    'โรคหัวใจ',
+    'โรคไต',
+    'โรคปอด/หอบหืด',
+    'หลอดเลือดสมอง (Stroke)',
+    'สมองเสื่อม/อัลไซเมอร์',
+    'ข้อเข่าเสื่อม',
+    'แผลกดทับ',
+  ];
+
+  static const List<String> kDrugAllergyPresets = [
+    'เพนิซิลลิน (Penicillin)',
+    'อะม็อกซิซิลลิน (Amoxicillin)',
+    'ซัลฟา (Sulfa)',
+    'แอสไพริน (Aspirin)',
+    'ไอบูโพรเฟน (Ibuprofen)',
+    'พาราเซตามอล (Paracetamol)',
+  ];
+
+  static const List<String> kMedPresets = [
+    'Metformin',
+    'Amlodipine',
+    'Losartan',
+    'Atorvastatin',
+    'Aspirin',
+    'Omeprazole',
+    'Insulin',
+    'Paracetamol',
+  ];
+
   // ───────────────── actions ─────────────────
   Future<void> _saveNote() async {
     await _doc.update({
@@ -135,7 +169,7 @@ class _PatientsDetailViewState extends State<PatientsDetailView> {
         await showDialog<bool>(
           context: context,
           builder: (_) => _StyledDialog(
-            title: 'เก็บข้อมูลส่วนตัว',
+            title: 'ข้อมูลส่วนตัว',
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -246,53 +280,137 @@ class _PatientsDetailViewState extends State<PatientsDetailView> {
     });
   }
 
-  Future<void> _addCondition(Map<String, dynamic> data) async {
-    final key = _condStorageKey(data);
-    final ctl = TextEditingController();
+  Future<void> _editDoctor(Map<String, dynamic> data) async {
+    final docx = _asMap(data['doctor']);
+    final nameCtl = TextEditingController(
+      text: (docx['name'] ?? '').toString(),
+    );
+    final hospCtl = TextEditingController(
+      text: (docx['hospital'] ?? '').toString(),
+    );
+    final phoneCtl = TextEditingController(
+      text: (docx['phone'] ?? '').toString(),
+    );
+
     final ok =
         await showDialog<bool>(
           context: context,
           builder: (_) => _StyledDialog(
-            title: 'เพิ่มโรคประจำตัว',
-            child: _tf(ctl, 'เช่น ความดัน'),
-            positiveText: 'เพิ่ม',
+            title: 'หมอประจำตัว',
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _tf(nameCtl, 'ชื่อแพทย์'),
+                const SizedBox(height: 8),
+                _tf(hospCtl, 'โรงพยาบาล/คลินิก'),
+                const SizedBox(height: 8),
+                _tf(phoneCtl, 'เบอร์โทร', phone: true),
+              ],
+            ),
           ),
         ) ??
         false;
     if (!ok) return;
-    final v = ctl.text.trim();
-    if (v.isEmpty) return;
+
     await _doc.update({
-      key: FieldValue.arrayUnion([v]),
+      'doctor': {
+        'name': nameCtl.text.trim(),
+        'hospital': hospCtl.text.trim(),
+        'phone': phoneCtl.text.trim(),
+      },
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
 
+  // ✅ โหมดเลือกโรคประจำตัว (มี preset + เพิ่มเอง + บันทึกเป็น list)
+  Future<void> _pickConditions(Map<String, dynamic> data) async {
+    final key = _condStorageKey(data);
+    final current = _readConditions(data).toSet();
+
+    final result = await _multiSelectDialog(
+      title: 'เลือกโรคประจำตัว',
+      presets: kConditionPresets,
+      initialSelected: current,
+      addHint: 'พิมพ์โรคอื่น ๆ แล้วกด “เพิ่ม”',
+    );
+
+    if (result == null) return;
+    await _doc.update({
+      key: result.toList(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  // ✅ โหมดเลือกการแพ้ยา (มี preset + เพิ่มเอง)
+  Future<void> _pickDrugAllergies(Map<String, dynamic> data) async {
+    final current = _readDrugAllergies(data).toSet();
+
+    final result = await _multiSelectDialog(
+      title: 'เลือกการแพ้ยา',
+      presets: kDrugAllergyPresets,
+      initialSelected: current,
+      addHint: 'พิมพ์ชื่อยาอื่น ๆ แล้วกด “เพิ่ม”',
+    );
+
+    if (result == null) return;
+    await _doc.update({
+      'drugAllergies': result.toList(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  // ✅ โหมดเลือกยาที่ใช้ประจำ (มี preset + เพิ่มเอง + ใส่โน้ตได้)
+  Future<void> _pickMeds(Map<String, dynamic> data) async {
+    final storageKey = _medStorageKey(data);
+
+    // ดึงค่าเดิม
+    final current = _readMeds(
+      data,
+    ).where((m) => (m['name'] ?? '').toString().trim().isNotEmpty).toList();
+
+    final result = await _medSelectDialog(
+      title: 'ยาที่ใช้ประจำ',
+      presets: kMedPresets,
+      initial: current,
+      // ถ้าเดิมเป็น regularMeds จะเซฟกลับเป็น string list
+      stringOnly: storageKey == 'regularMeds',
+    );
+
+    if (result == null) return;
+
+    if (storageKey == 'regularMeds') {
+      // เก็บเป็น List<String>
+      final next = result
+          .map((m) => (m['name'] ?? '').toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      await _doc.update({
+        'regularMeds': next,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } else {
+      // เก็บเป็น List<Map> {name,note}
+      final next = result
+          .map(
+            (m) => {
+              'name': (m['name'] ?? '').toString().trim(),
+              'note': (m['note'] ?? '').toString().trim(),
+            },
+          )
+          .where((m) => (m['name'] ?? '').toString().isNotEmpty)
+          .toList();
+      await _doc.update({
+        'meds': next,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
+  // ลบ chip แบบเดิมยังทำได้
   Future<void> _removeCondition(Map<String, dynamic> data, String v) async {
     final key = _condStorageKey(data);
     await _doc.update({
       key: FieldValue.arrayRemove([v]),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-  }
-
-  Future<void> _addDrugAllergy() async {
-    final ctl = TextEditingController();
-    final ok =
-        await showDialog<bool>(
-          context: context,
-          builder: (_) => _StyledDialog(
-            title: 'เพิ่มการแพ้ยา',
-            child: _tf(ctl, 'เช่น เพนิซิลลิน'),
-            positiveText: 'เพิ่ม',
-          ),
-        ) ??
-        false;
-    if (!ok) return;
-    final v = ctl.text.trim();
-    if (v.isEmpty) return;
-    await _doc.update({
-      'drugAllergies': FieldValue.arrayUnion([v]),
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
@@ -302,52 +420,6 @@ class _PatientsDetailViewState extends State<PatientsDetailView> {
       'drugAllergies': FieldValue.arrayRemove([v]),
       'updatedAt': FieldValue.serverTimestamp(),
     });
-  }
-
-  Future<void> _addMed() async {
-    final nameCtl = TextEditingController();
-    final noteCtl = TextEditingController();
-
-    final ok =
-        await showDialog<bool>(
-          context: context,
-          builder: (_) => _StyledDialog(
-            title: 'เพิ่มยาที่ใช้ประจำ',
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _tf(nameCtl, 'ชื่อยา (เช่น Metformin)'),
-                const SizedBox(height: 8),
-                _tf(noteCtl, 'ขนาดยา/โน้ต (ถ้ามี)'),
-              ],
-            ),
-            positiveText: 'เพิ่ม',
-          ),
-        ) ??
-        false;
-    if (!ok) return;
-
-    final snap = await _doc.get();
-    final data = snap.data() ?? {};
-    final key = _medStorageKey(data);
-
-    if (key == 'regularMeds') {
-      final list = _asStringList(data['regularMeds']);
-      final name = nameCtl.text.trim();
-      if (name.isEmpty) return;
-      list.add(name);
-      await _doc.update({
-        'regularMeds': list,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } else {
-      final current = _readMeds(data);
-      current.add({'name': nameCtl.text.trim(), 'note': noteCtl.text.trim()});
-      await _doc.update({
-        'meds': current,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    }
   }
 
   Future<void> _removeMed(Map<String, dynamic> med) async {
@@ -407,12 +479,9 @@ class _PatientsDetailViewState extends State<PatientsDetailView> {
           );
         }
 
-        final name = (data['name'] ?? '').toString();
+        final name = (data['name'] ?? '').toString().trim();
         final age = data['age'];
-        final gender = (data['gender'] ?? 'other').toString();
         final blood = _readBlood(data);
-        final height = data['heightCm'];
-        final weight = data['weightKg'];
 
         final caregiver = _readCaregiver(data);
         final conditions = _readConditions(data);
@@ -420,51 +489,140 @@ class _PatientsDetailViewState extends State<PatientsDetailView> {
         final meds = _readMeds(data);
         final doctor = _asMap(data['doctor']);
 
-        _noteCtl.text = (data['note'] ?? '').toString();
+        final noteFromDb = (data['note'] ?? '').toString();
+        if (_noteCtl.text != noteFromDb) {
+          _noteCtl.value = _noteCtl.value.copyWith(
+            text: noteFromDb,
+            selection: TextSelection.collapsed(offset: noteFromDb.length),
+          );
+        }
+
+        final subtitle = [
+          if (age is int) 'อายุ $age ปี',
+          if (blood.isNotEmpty) 'หมู่เลือด $blood',
+        ].join(' • ');
 
         return Scaffold(
-          backgroundColor: kWhite,
+          backgroundColor: const Color(0xFFF7F7FB),
           body: CustomScrollView(
             slivers: [
-              SliverToBoxAdapter(
-                child: _HeaderWave(
-                  title: name.isEmpty ? 'รายละเอียดผู้ป่วย' : name,
-                  subtitle: [
-                    if (age is int) 'อายุ $age ปี',
-                    if (blood.isNotEmpty) 'หมู่เลือด $blood',
-                    if (height is num) 'ส่วนสูง ${height}ซม.',
-                    if (weight is num) 'น้ำหนัก ${weight}กก.',
-                  ].join(' • '),
-                  onBack: () => Navigator.maybePop(context),
-                  onEdit: () => _editBasics(data),
+              SliverAppBar(
+                pinned: true,
+                expandedHeight: 210,
+                backgroundColor: kPrimary,
+                leading: IconButton(
+                  onPressed: () => Navigator.maybePop(context),
+                  icon: const Icon(Icons.chevron_left, color: Colors.white),
+                ),
+                actions: [
+                  IconButton(
+                    tooltip: 'แก้ไขข้อมูลส่วนตัว',
+                    onPressed: () => _editBasics(data),
+                    icon: const Icon(Icons.edit_outlined, color: Colors.white),
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                flexibleSpace: FlexibleSpaceBar(
+                  background: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Color(0xFF5A0F1B),
+                              Color(0xFFB31237),
+                              Color(0xFFF24455),
+                            ],
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: -80,
+                        right: -60,
+                        child: Container(
+                          width: 220,
+                          height: 220,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(.10),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        bottom: -110,
+                        left: -80,
+                        child: Container(
+                          width: 260,
+                          height: 260,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(.08),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                      Align(
+                        alignment: Alignment.bottomLeft,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name.isEmpty ? 'รายละเอียดผู้ป่วย' : name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                subtitle.isEmpty ? '—' : subtitle,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(.92),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
+
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
                   child: Column(
                     children: [
-                      _CardSection(
+                      // ผู้ดูแล
+                      _SectionCard(
+                        icon: Icons.call_outlined,
                         title: 'ติดต่อผู้ดูแล',
-                        actions: [
-                          IconButton(
-                            onPressed: () => _editCaregiver(data),
-                            icon: const Icon(
-                              Icons.edit_outlined,
-                              color: kPrimary,
-                            ),
-                            tooltip: 'แก้ไข',
-                          ),
-                        ],
+                        trailing: _SmallAction(
+                          text: 'แก้ไข',
+                          icon: Icons.edit_outlined,
+                          onTap: () => _editCaregiver(data),
+                        ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _row('ชื่อ', (caregiver['name'] ?? '').toString()),
-                            _row(
+                            _kv('ชื่อ', (caregiver['name'] ?? '').toString()),
+                            _kv(
                               'ความเกี่ยวข้อง',
                               (caregiver['relation'] ?? '').toString(),
                             ),
-                            _row(
+                            _kv(
                               'เบอร์โทร',
                               (caregiver['phone'] ?? '').toString(),
                             ),
@@ -472,15 +630,16 @@ class _PatientsDetailViewState extends State<PatientsDetailView> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      _CardSection(
+
+                      // โรคประจำตัว (เลือกจากรายการ + เพิ่มเอง)
+                      _SectionCard(
+                        icon: Icons.medical_information_outlined,
                         title: 'โรคประจำตัว',
-                        actions: [
-                          IconButton(
-                            onPressed: () => _addCondition(data),
-                            icon: const Icon(Icons.add, color: kPrimary),
-                            tooltip: 'เพิ่ม',
-                          ),
-                        ],
+                        trailing: _SmallAction(
+                          text: 'เลือก',
+                          icon: Icons.tune_rounded,
+                          onTap: () => _pickConditions(data),
+                        ),
                         child: conditions.isEmpty
                             ? const Text('ยังไม่ได้ระบุ')
                             : Wrap(
@@ -497,15 +656,16 @@ class _PatientsDetailViewState extends State<PatientsDetailView> {
                               ),
                       ),
                       const SizedBox(height: 12),
-                      _CardSection(
+
+                      // การแพ้ยา
+                      _SectionCard(
+                        icon: Icons.report_gmailerrorred_outlined,
                         title: 'การแพ้ยา',
-                        actions: [
-                          IconButton(
-                            onPressed: _addDrugAllergy,
-                            icon: const Icon(Icons.add, color: kPrimary),
-                            tooltip: 'เพิ่ม',
-                          ),
-                        ],
+                        trailing: _SmallAction(
+                          text: 'เลือก',
+                          icon: Icons.tune_rounded,
+                          onTap: () => _pickDrugAllergies(data),
+                        ),
                         child: drugAllergies.isEmpty
                             ? const Text('ยังไม่ได้ระบุ')
                             : Wrap(
@@ -521,15 +681,16 @@ class _PatientsDetailViewState extends State<PatientsDetailView> {
                               ),
                       ),
                       const SizedBox(height: 12),
-                      _CardSection(
+
+                      // ยาที่ใช้ประจำ
+                      _SectionCard(
+                        icon: Icons.medication_outlined,
                         title: 'ยาที่ใช้ประจำ',
-                        actions: [
-                          IconButton(
-                            onPressed: _addMed,
-                            icon: const Icon(Icons.add, color: kPrimary),
-                            tooltip: 'เพิ่ม',
-                          ),
-                        ],
+                        trailing: _SmallAction(
+                          text: 'เลือก',
+                          icon: Icons.tune_rounded,
+                          onTap: () => _pickMeds(data),
+                        ),
                         child: meds.isEmpty
                             ? const Text('ยังไม่ได้ระบุ')
                             : Wrap(
@@ -545,88 +706,76 @@ class _PatientsDetailViewState extends State<PatientsDetailView> {
                               ),
                       ),
                       const SizedBox(height: 12),
-                      _CardSection(
+
+                      // หมอประจำตัว
+                      _SectionCard(
+                        icon: Icons.local_hospital_outlined,
                         title: 'หมอประจำตัว',
-                        actions: [
-                          IconButton(
-                            onPressed: () => _editDoctor(data),
-                            icon: const Icon(
-                              Icons.edit_outlined,
-                              color: kPrimary,
-                            ),
-                            tooltip: 'แก้ไข',
-                          ),
-                        ],
+                        trailing: _SmallAction(
+                          text: 'แก้ไข',
+                          icon: Icons.edit_outlined,
+                          onTap: () => _editDoctor(data),
+                        ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _row(
-                              'ชื่อแพทย์',
-                              (doctor['name'] ?? '').toString(),
-                            ),
-                            _row(
+                            _kv('ชื่อแพทย์', (doctor['name'] ?? '').toString()),
+                            _kv(
                               'โรงพยาบาล',
                               (doctor['hospital'] ?? '').toString(),
                             ),
-                            _row(
-                              'เบอร์โทร',
-                              (doctor['phone'] ?? '').toString(),
+                            _kv('เบอร์โทร', (doctor['phone'] ?? '').toString()),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // โน้ต
+                      _SectionCard(
+                        icon: Icons.sticky_note_2_outlined,
+                        title: 'บันทึก/หมายเหตุ',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            TextField(
+                              controller: _noteCtl,
+                              maxLines: 5,
+                              decoration: _inputDecoration(
+                                'ข้อมูลแพ้ยา ประวัติการรักษา อื่น ๆ',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: ElevatedButton.icon(
+                                onPressed: _saveNote,
+                                icon: const Icon(Icons.save_outlined),
+                                label: const Text('บันทึก'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: kPrimary,
+                                  foregroundColor: kWhite,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
                             ),
                           ],
                         ),
                       ),
                       const SizedBox(height: 12),
-                      Material(
-                        color: kWhite,
-                        elevation: 4,
-                        shadowColor: kPrimary.withOpacity(.12),
-                        borderRadius: BorderRadius.circular(16),
-                        child: Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const _CardTitle('บันทึก/หมายเหตุ'),
-                              const SizedBox(height: 8),
-                              TextField(
-                                controller: _noteCtl,
-                                maxLines: 5,
-                                decoration: _inputDecoration(
-                                  'ข้อมูลแพ้ยา ประวัติการรักษา อื่น ๆ',
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: ElevatedButton.icon(
-                                  onPressed: _saveNote,
-                                  icon: const Icon(Icons.save_outlined),
-                                  label: const Text('บันทึก'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: kPrimary,
-                                    foregroundColor: kWhite,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Material(
-                        color: kWhite,
-                        elevation: 4,
-                        shadowColor: kPrimary.withOpacity(.12),
-                        borderRadius: BorderRadius.circular(16),
+
+                      // ไป Care Log
+                      _SectionCard(
+                        icon: Icons.history_rounded,
+                        title: 'Care Log',
                         child: ListTile(
-                          leading: const Icon(Icons.history, color: kPrimary),
+                          contentPadding: EdgeInsets.zero,
                           title: const Text(
                             'เปิด Care Log ของผู้ป่วยนี้',
-                            style: TextStyle(fontWeight: FontWeight.w700),
+                            style: TextStyle(fontWeight: FontWeight.w800),
                           ),
+                          subtitle: const Text('บันทึกกิจวัตร/การดูแลรายวัน'),
                           trailing: const Icon(
                             Icons.chevron_right_rounded,
                             color: kPrimary,
@@ -640,16 +789,24 @@ class _PatientsDetailViewState extends State<PatientsDetailView> {
                           },
                         ),
                       ),
+
                       const SizedBox(height: 12),
-                      Material(
-                        color: kWhite,
-                        elevation: 2,
-                        borderRadius: BorderRadius.circular(16),
+
+                      // ลบ
+                      _SectionCard(
+                        icon: Icons.delete_outline,
+                        title: 'ลบผู้ป่วย',
+                        danger: true,
                         child: ListTile(
-                          iconColor: kPrimary,
-                          textColor: kPrimary,
-                          leading: const Icon(Icons.delete_outline),
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(
+                            Icons.delete_outline,
+                            color: Color(0xFFB00020),
+                          ),
                           title: const Text('ลบผู้ป่วยนี้'),
+                          subtitle: const Text(
+                            'การลบจะลบเอกสารผู้ป่วย (โปรดตรวจสอบก่อน)',
+                          ),
                           onTap: () async {
                             final ok =
                                 await showDialog<bool>(
@@ -657,7 +814,7 @@ class _PatientsDetailViewState extends State<PatientsDetailView> {
                                   builder: (_) => _StyledDialog(
                                     title: 'ยืนยันการลบ',
                                     child: Text(
-                                      'ต้องการลบ “$name” หรือไม่? (ข้อมูล Care Log ยังอยู่)',
+                                      'ต้องการลบ “${name.isEmpty ? 'ผู้ป่วย' : name}” หรือไม่?',
                                     ),
                                     positiveText: 'ลบ',
                                   ),
@@ -680,49 +837,363 @@ class _PatientsDetailViewState extends State<PatientsDetailView> {
     );
   }
 
-  Future<void> _editDoctor(Map<String, dynamic> data) async {
-    final docx = _asMap(data['doctor']);
-    final nameCtl = TextEditingController(
-      text: (docx['name'] ?? '').toString(),
-    );
-    final hospCtl = TextEditingController(
-      text: (docx['hospital'] ?? '').toString(),
-    );
-    final phoneCtl = TextEditingController(
-      text: (docx['phone'] ?? '').toString(),
-    );
+  // ───────────────── dialogs ─────────────────
 
-    final ok =
-        await showDialog<bool>(
-          context: context,
-          builder: (_) => _StyledDialog(
-            title: 'หมอประจำตัว',
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _tf(nameCtl, 'ชื่อแพทย์'),
-                const SizedBox(height: 8),
-                _tf(hospCtl, 'โรงพยาบาล/คลินิก'),
-                const SizedBox(height: 8),
-                _tf(phoneCtl, 'เบอร์โทร', phone: true),
+  Future<Set<String>?> _multiSelectDialog({
+    required String title,
+    required List<String> presets,
+    required Set<String> initialSelected,
+    required String addHint,
+  }) async {
+    final addCtl = TextEditingController();
+    final options = [...presets];
+    final selected = {...initialSelected};
+
+    final res = await showDialog<Set<String>>(
+      context: context,
+      builder: (_) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            void addCustom() {
+              final v = addCtl.text.trim();
+              if (v.isEmpty) return;
+              if (!options.contains(v)) options.insert(0, v);
+              selected.add(v);
+              addCtl.clear();
+              setState(() {});
+            }
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              title: Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: kPrimary,
+                ),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      addHint,
+                      style: TextStyle(color: Colors.grey.shade700),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: addCtl,
+                            decoration: _inputDecoration('เพิ่มเอง…').copyWith(
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                            ),
+                            onSubmitted: (_) => addCustom(),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: addCustom,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: kPrimary,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text('เพิ่ม'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final o in options)
+                          FilterChip(
+                            selected: selected.contains(o),
+                            label: Text(o),
+                            selectedColor: kPrimary.withOpacity(.14),
+                            checkmarkColor: kPrimary,
+                            onSelected: (v) {
+                              if (v) {
+                                selected.add(o);
+                              } else {
+                                selected.remove(o);
+                              }
+                              setState(() {});
+                            },
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Divider(color: Colors.grey.shade300),
+                    const SizedBox(height: 6),
+                    Text(
+                      'เลือกแล้ว: ${selected.length} รายการ',
+                      style: TextStyle(
+                        color: Colors.grey.shade700,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('ยกเลิก'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, selected),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kPrimary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('บันทึก'),
+                ),
               ],
-            ),
-          ),
-        ) ??
-        false;
-    if (!ok) return;
-
-    await _doc.update({
-      'doctor': {
-        'name': nameCtl.text.trim(),
-        'hospital': hospCtl.text.trim(),
-        'phone': phoneCtl.text.trim(),
+            );
+          },
+        );
       },
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    );
+
+    addCtl.dispose();
+    return res;
   }
 
-  // small UI helpers
+  Future<List<Map<String, dynamic>>?> _medSelectDialog({
+    required String title,
+    required List<String> presets,
+    required List<Map<String, dynamic>> initial,
+    required bool stringOnly,
+  }) async {
+    final addCtl = TextEditingController();
+
+    // ใช้ key เป็นชื่อยา
+    final selected = <String, Map<String, dynamic>>{
+      for (final m in initial)
+        (m['name'] ?? '').toString().trim(): {
+          'name': (m['name'] ?? '').toString().trim(),
+          'note': (m['note'] ?? '').toString().trim(),
+        },
+    }..removeWhere((k, v) => k.isEmpty);
+
+    final options = [...presets];
+
+    final res = await showDialog<List<Map<String, dynamic>>>(
+      context: context,
+      builder: (_) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            void addCustom() {
+              final v = addCtl.text.trim();
+              if (v.isEmpty) return;
+              if (!options.contains(v)) options.insert(0, v);
+              selected[v] = {'name': v, 'note': ''};
+              addCtl.clear();
+              setState(() {});
+            }
+
+            final keys = selected.keys.toList();
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              title: Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: kPrimary,
+                ),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      stringOnly
+                          ? 'เลือกยาได้จากรายการ หรือพิมพ์เพิ่มเอง (โหมดนี้จะบันทึกเฉพาะชื่อยา)'
+                          : 'เลือกยาได้จากรายการ หรือพิมพ์เพิ่มเอง และใส่โน้ต/ขนาดยาได้',
+                      style: TextStyle(color: Colors.grey.shade700),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: addCtl,
+                            decoration: _inputDecoration('เพิ่มชื่อยา…')
+                                .copyWith(
+                                  isDense: true,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
+                                ),
+                            onSubmitted: (_) => addCustom(),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: addCustom,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: kPrimary,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text('เพิ่ม'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final o in options)
+                          FilterChip(
+                            selected: selected.containsKey(o),
+                            label: Text(o),
+                            selectedColor: kPrimary.withOpacity(.14),
+                            checkmarkColor: kPrimary,
+                            onSelected: (v) {
+                              if (v) {
+                                selected[o] = {'name': o, 'note': ''};
+                              } else {
+                                selected.remove(o);
+                              }
+                              setState(() {});
+                            },
+                          ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 12),
+                    Divider(color: Colors.grey.shade300),
+                    const SizedBox(height: 6),
+                    Text(
+                      'รายการที่เลือก (${selected.length})',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: kPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+
+                    if (selected.isEmpty)
+                      Text(
+                        'ยังไม่ได้เลือก',
+                        style: TextStyle(color: Colors.grey.shade700),
+                      )
+                    else
+                      Column(
+                        children: [
+                          for (final k in keys)
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF7F7FB),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: kPrimary.withOpacity(.12),
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          k,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                            color: kPrimary,
+                                          ),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        onPressed: () {
+                                          selected.remove(k);
+                                          setState(() {});
+                                        },
+                                        icon: const Icon(
+                                          Icons.close_rounded,
+                                          color: kPrimary,
+                                        ),
+                                        tooltip: 'ลบ',
+                                      ),
+                                    ],
+                                  ),
+                                  if (!stringOnly) ...[
+                                    const SizedBox(height: 6),
+                                    TextField(
+                                      controller: TextEditingController(
+                                        text: (selected[k]?['note'] ?? '')
+                                            .toString(),
+                                      ),
+                                      onChanged: (v) =>
+                                          selected[k]!['note'] = v,
+                                      decoration: _inputDecoration(
+                                        'โน้ต/ขนาดยา เช่น 1 เม็ดหลังอาหารเช้า',
+                                      ).copyWith(isDense: true),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('ยกเลิก'),
+                ),
+                ElevatedButton(
+                  onPressed: () =>
+                      Navigator.pop(context, selected.values.toList()),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kPrimary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('บันทึก'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    addCtl.dispose();
+    return res;
+  }
+
+  // ───────────────── small UI helpers ─────────────────
   static InputDecoration _inputDecoration(String hint) => InputDecoration(
     hintText: hint,
     filled: true,
@@ -733,7 +1204,7 @@ class _PatientsDetailViewState extends State<PatientsDetailView> {
     ),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
-      borderSide: BorderSide(color: kPrimary.withOpacity(.25), width: 1),
+      borderSide: BorderSide(color: kPrimary.withOpacity(.18), width: 1),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
@@ -760,20 +1231,20 @@ class _PatientsDetailViewState extends State<PatientsDetailView> {
     ).copyWith(labelText: label, hintText: null),
   );
 
-  Widget _row(String k, String v) {
-    final s = v.isEmpty ? '-' : v;
+  Widget _kv(String k, String v) {
+    final s = v.trim().isEmpty ? '-' : v;
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
         children: [
           SizedBox(
-            width: 110,
+            width: 120,
             child: Text(
               k,
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
                 fontSize: 13,
-                color: kPrimary,
+                color: kPrimary.withOpacity(.9),
               ),
             ),
           ),
@@ -789,34 +1260,70 @@ class _PatientsDetailViewState extends State<PatientsDetailView> {
   }) => InputChip(
     label: Text(label),
     backgroundColor: kWhite,
-    shape: StadiumBorder(side: BorderSide(color: kPrimary.withOpacity(.35))),
+    shape: StadiumBorder(side: BorderSide(color: kPrimary.withOpacity(.22))),
     deleteIconColor: kPrimary,
     onDeleted: onDeleted,
-    labelStyle: const TextStyle(fontWeight: FontWeight.w600),
+    labelStyle: const TextStyle(fontWeight: FontWeight.w700),
   );
 }
 
-// ───────────────── Card section ─────────────────
-class _CardSection extends StatelessWidget {
+// ───────────────── components ─────────────────
+
+class _SectionCard extends StatelessWidget {
+  final IconData icon;
   final String title;
-  final List<Widget>? actions;
   final Widget child;
-  const _CardSection({required this.title, this.actions, required this.child});
+  final Widget? trailing;
+  final bool danger;
+
+  const _SectionCard({
+    required this.icon,
+    required this.title,
+    required this.child,
+    this.trailing,
+    this.danger = false,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final titleColor = danger ? const Color(0xFFB00020) : kPrimary;
+
     return Material(
       color: kWhite,
-      elevation: 4,
-      shadowColor: kPrimary.withOpacity(.12),
-      borderRadius: BorderRadius.circular(16),
+      elevation: 3,
+      shadowColor: kPrimary.withOpacity(.10),
+      borderRadius: BorderRadius.circular(18),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [_CardTitle(title), const Spacer(), ...?actions]),
-            const SizedBox(height: 8),
+            Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: titleColor.withOpacity(.10),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(icon, color: titleColor),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: titleColor,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+                if (trailing != null) trailing!,
+              ],
+            ),
+            const SizedBox(height: 10),
             child,
           ],
         ),
@@ -825,126 +1332,35 @@ class _CardSection extends StatelessWidget {
   }
 }
 
-class _CardTitle extends StatelessWidget {
+class _SmallAction extends StatelessWidget {
   final String text;
-  const _CardTitle(this.text);
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: const TextStyle(fontWeight: FontWeight.w800, color: kPrimary),
-    );
-  }
-}
+  final IconData icon;
+  final VoidCallback onTap;
 
-// ───────────────── Header wave ─────────────────
-class _HeaderWave extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final VoidCallback onBack;
-  final VoidCallback onEdit;
-  const _HeaderWave({
-    required this.title,
-    required this.subtitle,
-    required this.onBack,
-    required this.onEdit,
+  const _SmallAction({
+    required this.text,
+    required this.icon,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    const h = 190.0;
-    return SizedBox(
-      height: h,
-      child: Stack(
-        children: [
-          ClipPath(
-            clipper: _WaveClipper(),
-            child: Container(
-              color: kPrimary,
-              height: h,
-              width: double.infinity,
-            ),
-          ),
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
-              child: Row(
-                children: [
-                  IconButton(
-                    onPressed: onBack,
-                    icon: const Icon(Icons.chevron_left, color: kWhite),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: onEdit,
-                    icon: const Icon(Icons.edit_outlined, color: kWhite),
-                    tooltip: 'แก้ไขโปรไฟล์ละเอียด',
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Positioned.fill(
-            top: 64,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: kWhite,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    subtitle,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: kWhite.withOpacity(.92),
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+    return TextButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 18, color: kPrimary),
+      label: Text(
+        text,
+        style: const TextStyle(fontWeight: FontWeight.w900, color: kPrimary),
+      ),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        backgroundColor: kPrimary.withOpacity(.08),
       ),
     );
   }
 }
 
-class _WaveClipper extends CustomClipper<Path> {
-  @override
-  Path getClip(Size size) {
-    final path = Path()..lineTo(0, size.height - 40);
-    final cp1 = Offset(size.width * .25, size.height);
-    final ep1 = Offset(size.width * .6, size.height - 28);
-    path.quadraticBezierTo(cp1.dx, cp1.dy, ep1.dx, ep1.dy);
-
-    final cp2 = Offset(size.width * .85, size.height - 52);
-    final ep2 = Offset(size.width, size.height - 10);
-    path.quadraticBezierTo(cp2.dx, cp2.dy, ep2.dx, ep2.dy);
-
-    path
-      ..lineTo(size.width, 0)
-      ..close();
-    return path;
-  }
-
-  @override
-  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
-}
-
-// ───────────────── Styled dialog ─────────────────
 class _StyledDialog extends StatelessWidget {
   final String title;
   final Widget child;
@@ -966,7 +1382,7 @@ class _StyledDialog extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Text(
         title,
-        style: const TextStyle(color: kPrimary, fontWeight: FontWeight.w800),
+        style: const TextStyle(color: kPrimary, fontWeight: FontWeight.w900),
       ),
       content: SingleChildScrollView(child: child),
       actions: [

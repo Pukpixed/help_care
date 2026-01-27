@@ -1,4 +1,4 @@
-// lib/screen/care_log_screen.dart
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -116,10 +116,23 @@ class _CareType {
 }
 
 class _CareLogScreenState extends State<CareLogScreen> {
-  final _col = FirebaseFirestore.instance.collection('care_logs');
+  /// ✅ ใหม่: patients/{patientId}/care_logs
+  CollectionReference<Map<String, dynamic>> get _newCol => FirebaseFirestore
+      .instance
+      .collection('patients')
+      .doc(widget.patientId)
+      .collection('care_logs');
+
+  /// ✅ เดิม: care_logs (root)
+  final CollectionReference<Map<String, dynamic>> _legacyCol =
+      FirebaseFirestore.instance.collection('care_logs');
+
+  /// ✅ อ่านทั้งใหม่+เก่า ระหว่างช่วงย้าย
+  static const bool _enableLegacyRead = true;
 
   List<_CareType> _types = [];
   bool _loadingTypes = true;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _typesSub;
 
   _Range _range = _Range.day;
   DateTime _anchor = DateTime.now();
@@ -129,7 +142,7 @@ class _CareLogScreenState extends State<CareLogScreen> {
 
   final _noteCtl = TextEditingController();
 
-  /// โหมดสำรอง (ไม่ใช้ Index)
+  /// โหมดสำรอง (ไม่ใช้ Index) สำหรับ legacy เท่านั้น
   bool _noIndexFallback = false;
 
   CollectionReference<Map<String, dynamic>> get _typeCol => FirebaseFirestore
@@ -145,42 +158,65 @@ class _CareLogScreenState extends State<CareLogScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant CareLogScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.patientId != widget.patientId) {
+      _typesSub?.cancel();
+      _typesSub = null;
+      setState(() {
+        _types = [];
+        _loadingTypes = true;
+        _selectedTypeKeys.clear();
+        _noIndexFallback = false;
+        // _anchor = DateTime.now(); // ถ้าอยาก reset ช่วงเวลาเมื่อเปลี่ยนคน
+      });
+      _listenTypes();
+    }
+  }
+
+  @override
   void dispose() {
+    _typesSub?.cancel();
     _noteCtl.dispose();
     super.dispose();
   }
 
   void _listenTypes() {
-    _typeCol.orderBy('order', descending: false).snapshots().listen((s) {
-      final docs = s.docs.toList();
-      docs.sort((a, b) {
-        final ma = a.data();
-        final mb = b.data();
-        final ao = (ma['order'] is int) ? ma['order'] as int : 999999;
-        final bo = (mb['order'] is int) ? mb['order'] as int : 999999;
-        if (ao != bo) return ao.compareTo(bo);
-        final al = (ma['label'] ?? '').toString().toLowerCase();
-        final bl = (mb['label'] ?? '').toString().toLowerCase();
-        return al.compareTo(bl);
-      });
-
-      final list = <_CareType>[
-        for (final d in docs)
-          _CareType(
-            (d['key'] ?? '').toString(),
-            (d['label'] ?? '').toString(),
-            (d['icon'] ?? 'restaurant_outlined').toString(),
-            (d['color'] ?? 0xFFB00020) as int,
-          ),
-      ];
-      if (mounted) {
-        setState(() {
-          _types = list;
-          _loadingTypes = false;
-          _selectedTypeKeys.removeWhere((k) => !_types.any((t) => t.key == k));
+    _typesSub = _typeCol.orderBy('order', descending: false).snapshots().listen(
+      (s) {
+        final docs = s.docs.toList();
+        docs.sort((a, b) {
+          final ma = a.data();
+          final mb = b.data();
+          final ao = (ma['order'] is int) ? ma['order'] as int : 999999;
+          final bo = (mb['order'] is int) ? mb['order'] as int : 999999;
+          if (ao != bo) return ao.compareTo(bo);
+          final al = (ma['label'] ?? '').toString().toLowerCase();
+          final bl = (mb['label'] ?? '').toString().toLowerCase();
+          return al.compareTo(bl);
         });
-      }
-    });
+
+        final list = <_CareType>[
+          for (final d in docs)
+            _CareType(
+              (d['key'] ?? '').toString(),
+              (d['label'] ?? '').toString(),
+              (d['icon'] ?? 'restaurant_outlined').toString(),
+              (d['color'] ?? 0xFFB00020) as int,
+            ),
+        ];
+        if (mounted) {
+          setState(() {
+            _types = list;
+            _loadingTypes = false;
+            _selectedTypeKeys.removeWhere((k) => !_types.any((t) => t.key == k));
+          });
+        }
+      },
+      onError: (_) {
+        if (mounted) setState(() => _loadingTypes = false);
+      },
+    );
   }
 
   // ───── Time helpers ─────
@@ -214,7 +250,7 @@ class _CareLogScreenState extends State<CareLogScreen> {
 
   // ───── Quick actions ─────
   Future<void> _quickAdd(_CareType t) async {
-    await _col.add({
+    await _newCol.add({
       'patientId': widget.patientId,
       'type': t.key,
       'note': '',
@@ -256,9 +292,7 @@ class _CareLogScreenState extends State<CareLogScreen> {
               const SizedBox(height: 8),
               TextField(
                 controller: _noteCtl,
-                decoration: const InputDecoration(
-                  labelText: 'โน้ต (ไม่บังคับ)',
-                ),
+                decoration: const InputDecoration(labelText: 'โน้ต (ไม่บังคับ)'),
               ),
             ],
           ),
@@ -271,7 +305,7 @@ class _CareLogScreenState extends State<CareLogScreen> {
               onPressed: sel == null
                   ? null
                   : () async {
-                      await _col.add({
+                      await _newCol.add({
                         'patientId': widget.patientId,
                         'type': sel!.key,
                         'note': _noteCtl.text.trim(),
@@ -313,7 +347,7 @@ class _CareLogScreenState extends State<CareLogScreen> {
         final tt = ts != null
             ? '${ts.hour.toString().padLeft(2, '0')}:${ts.minute.toString().padLeft(2, '0')}'
             : '-';
-        final label = _typeLabel(m['type'] ?? '');
+        final label = _typeLabel((m['type'] ?? '').toString());
         return [dd, tt, label, (m['note'] ?? '').toString()];
       }),
     ];
@@ -326,15 +360,12 @@ class _CareLogScreenState extends State<CareLogScreen> {
     await Share.shareXFiles([x], text: _rangeLabel());
   }
 
-  // ส่วนหัว chips ตัวกรองหลายตัวเลือก
   Widget _buildFilterChips(
     Map<String, int> byType,
     List<_CareType> availableTypes,
   ) {
     final items = availableTypes
-        .where(
-          (t) => byType.containsKey(t.key) || _selectedTypeKeys.contains(t.key),
-        )
+        .where((t) => byType.containsKey(t.key) || _selectedTypeKeys.contains(t.key))
         .toList();
 
     return SingleChildScrollView(
@@ -374,23 +405,71 @@ class _CareLogScreenState extends State<CareLogScreen> {
     );
   }
 
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _mergeAndSort(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> a,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> b,
+  ) {
+    final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    out.addAll(a);
+    out.addAll(b);
+
+    out.sort((x, y) {
+      final tx = (x.data()['time'] as Timestamp?);
+      final ty = (y.data()['time'] as Timestamp?);
+      final vx = tx?.millisecondsSinceEpoch ?? 0;
+      final vy = ty?.millisecondsSinceEpoch ?? 0;
+      return vy.compareTo(vx);
+    });
+    return out;
+  }
+
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _fetchRangeBoth(
+    DateTime s,
+    DateTime e,
+  ) async {
+    final newSnap = await _newCol
+        .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(s))
+        .where('time', isLessThan: Timestamp.fromDate(e))
+        .get();
+
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> legacyDocs = const [];
+    if (_enableLegacyRead) {
+      try {
+        final legacySnap = await _legacyCol
+            .where('patientId', isEqualTo: widget.patientId)
+            .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(s))
+            .where('time', isLessThan: Timestamp.fromDate(e))
+            .get();
+        legacyDocs = legacySnap.docs;
+      } catch (_) {
+        legacyDocs = const [];
+      }
+    }
+
+    return _mergeAndSort(newSnap.docs, legacyDocs);
+  }
+
   @override
   Widget build(BuildContext context) {
     final (s, e) = _rangeStartEnd();
 
-    // ปกติ: ต้องมี composite index (patientId + time desc)
-    final qNormal = _col
+    final qNew = _newCol
+        .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(s))
+        .where('time', isLessThan: Timestamp.fromDate(e))
+        .orderBy('time', descending: true);
+
+    final qLegacyNormal = _legacyCol
         .where('patientId', isEqualTo: widget.patientId)
         .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(s))
         .where('time', isLessThan: Timestamp.fromDate(e))
         .orderBy('time', descending: true);
 
-    // โหมดชั่วคราว: ไม่ใช้ index (แสดงล่าสุด ~50 รายการของคนนี้)
-    final qFallback = _col
+    final qLegacyFallback = _legacyCol
         .where('patientId', isEqualTo: widget.patientId)
         .limit(50);
 
-    final stream = (_noIndexFallback ? qFallback : qNormal).snapshots();
+    final legacyStream =
+        (_noIndexFallback ? qLegacyFallback : qLegacyNormal).snapshots();
 
     return Scaffold(
       backgroundColor: const Color.fromARGB(255, 203, 203, 203),
@@ -398,22 +477,17 @@ class _CareLogScreenState extends State<CareLogScreen> {
         elevation: 0,
         backgroundColor: Colors.transparent,
         scrolledUnderElevation: 0,
-        foregroundColor:
-            Colors.black, // ✅ ไอคอนใน AppBar เป็นสีดำให้เข้ากับหัวข้อ
+        foregroundColor: Colors.black,
         title: const Text(
           'บันทึกกิจวัตร',
-          style: TextStyle(
-            fontWeight: FontWeight.w800,
-            color: Colors.black, // ✅ หัวข้อเป็นสีดำ
-          ),
+          style: TextStyle(fontWeight: FontWeight.w800, color: Colors.black),
         ),
         actions: [
           IconButton(
             tooltip: 'ตั้งค่าชนิดกิจวัตร',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) =>
-                    CareTypesSettingsScreen(patientId: widget.patientId),
+                builder: (_) => CareTypesSettingsScreen(patientId: widget.patientId),
               ),
             ),
             icon: const Icon(Icons.tune),
@@ -428,7 +502,6 @@ class _CareLogScreenState extends State<CareLogScreen> {
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: Row(
               children: [
-                // ปุ่มช่วงเวลา (เล็กลง)
                 SegmentedButton<_Range>(
                   segments: const [
                     ButtonSegment(value: _Range.day, label: Text('วัน')),
@@ -446,10 +519,7 @@ class _CareLogScreenState extends State<CareLogScreen> {
                       TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                     ),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: const VisualDensity(
-                      horizontal: -2,
-                      vertical: -2,
-                    ),
+                    visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
                     minimumSize: const MaterialStatePropertyAll(Size(0, 0)),
                   ),
                 ),
@@ -459,14 +529,8 @@ class _CareLogScreenState extends State<CareLogScreen> {
                   icon: const Icon(Icons.today_outlined),
                   label: const Text('วันนี้'),
                   style: OutlinedButton.styleFrom(
-                    visualDensity: const VisualDensity(
-                      horizontal: -2,
-                      vertical: -2,
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
-                    ),
+                    visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   ),
                 ),
               ],
@@ -484,177 +548,161 @@ class _CareLogScreenState extends State<CareLogScreen> {
       body: _loadingTypes
           ? const Center(child: CircularProgressIndicator())
           : (_types.isEmpty
-                ? _emptyTypesPlaceholder()
-                : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: stream,
-                    builder: (_, snap) {
-                      if (snap.hasError) {
-                        final msg = snap.error.toString();
-                        final link = _extractIndexUrl(msg);
-                        return _IndexErrorCard(
-                          message: msg,
-                          indexUrl: link,
-                          onUseFallback: () => setState(() {
-                            _noIndexFallback = true;
-                          }),
-                        );
-                      }
-
-                      if (!snap.hasData) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-
-                      final docsAll = snap.data!.docs;
-
-                      // นับแยกชนิดเพื่อทำ chips
-                      final byTypeAll = ReportUtils.aggregateByType(docsAll);
-
-                      // กรองตามตัวกรองหลายชนิด
-                      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs =
-                          docsAll;
-                      if (_selectedTypeKeys.isNotEmpty) {
-                        docs = docsAll
-                            .where(
-                              (d) => _selectedTypeKeys.contains(
-                                (d['type'] ?? '').toString(),
-                              ),
-                            )
-                            .toList();
-                      }
-
-                      // นับใหม่หลังกรอง
-                      final byType = ReportUtils.aggregateByType(docs);
-
-                      // กลุ่ม/หมวด
-                      final grouped = _groupTypes();
-                      final byGroup = <String, int>{};
-                      for (final entry in grouped.entries) {
-                        byGroup[entry.key] = entry.value.fold(
-                          0,
-                          (sum, t) => sum + (byType[t.key] ?? 0),
-                        );
-                      }
-
-                      // เปอร์เซ็นต์ภาพรวม (ตัวอย่าง)
-                      const target = 20.0;
-                      final double pct = (docs.length / target)
-                          .clamp(0, 1)
-                          .toDouble();
-
-                      return ListView(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                        children: [
-                          // การ์ดสรุปบนสุด
-                          _TopSummaryCard(
-                            title: _rangeLabel(),
-                            subtitle: _selectedTypeKeys.isEmpty
-                                ? 'บันทึกทั้งหมดในช่วงนี้'
-                                : 'ตัวกรอง: ${_selectedTypeKeys.map(_typeLabel).join(", ")}',
-                            valueText: '${docs.length}',
-                            progress: pct,
-                            chip: _selectedTypeKeys.isEmpty
-                                ? null
-                                : InputChip(
-                                    label: const Text('ล้างตัวกรอง'),
-                                    deleteIcon: const Icon(Icons.close),
-                                    onDeleted: () => setState(
-                                      () => _selectedTypeKeys.clear(),
-                                    ),
-                                  ),
-                            onMore: () => _openMoreMenu(context, docs),
-                          ),
-                          const SizedBox(height: 8),
-
-                          // ตัวกรองหลายชนิด (แนวนอน)
-                          _buildFilterChips(byTypeAll, _types),
-
-                          const SizedBox(height: 12),
-
-                          Row(
-                            children: [
-                              const Text(
-                                'รายการล่าสุด',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const Spacer(),
-                              TextButton(
-                                onPressed: _selectedTypeKeys.isEmpty
-                                    ? null
-                                    : () => setState(
-                                        () => _selectedTypeKeys.clear(),
-                                      ),
-                                child: const Text('ดูทั้งหมด'),
-                              ),
-                            ],
-                          ),
-
-                          if (docs.isEmpty)
-                            const _EmptyRoundedCard(
-                              text: 'ยังไม่มีบันทึกในช่วงนี้',
-                            )
-                          else
-                            Material(
-                              color: Colors.white,
-                              elevation: 3,
-                              borderRadius: BorderRadius.circular(20),
-                              child: ListView.separated(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: docs.length,
-                                separatorBuilder: (_, __) =>
-                                    const Divider(height: 1, indent: 72),
-                                itemBuilder: (_, i) {
-                                  final d = docs[i];
-                                  final m = d.data();
-                                  final ts = (m['time'] as Timestamp?)
-                                      ?.toDate();
-                                  final date = ts != null ? _fmtDate(ts) : '-';
-                                  final time = ts != null
-                                      ? '${ts.hour.toString().padLeft(2, '0')}:${ts.minute.toString().padLeft(2, '0')}'
-                                      : '-';
-
-                                  return ListTile(
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 6,
-                                    ),
-                                    leading: Container(
-                                      height: 46,
-                                      width: 46,
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFEFF4FF),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: Center(
-                                        child: _typeIcon(m['type'] ?? ''),
-                                      ),
-                                    ),
-                                    title: Text(_typeLabel(m['type'] ?? '')),
-                                    subtitle: Text(
-                                      '$date  $time\n${(m['note'] ?? '').toString()}',
-                                    ),
-                                    isThreeLine: (m['note'] ?? '')
-                                        .toString()
-                                        .isNotEmpty,
-                                    trailing: IconButton(
-                                      icon: const Icon(Icons.more_vert),
-                                      onPressed: () => _showRowMenu(context, d),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                        ],
+              ? _emptyTypesPlaceholder()
+              : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: qNew.snapshots(),
+                  builder: (_, newSnap) {
+                    if (newSnap.hasError) {
+                      return _IndexErrorCard(
+                        message: newSnap.error.toString(),
+                        indexUrl: _extractIndexUrl(newSnap.error.toString()),
+                        onUseFallback: () {},
                       );
-                    },
-                  )),
+                    }
+                    if (!newSnap.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    final newDocs = newSnap.data!.docs;
+
+                    if (!_enableLegacyRead) {
+                      return _buildMainList(newDocs);
+                    }
+
+                    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: legacyStream,
+                      builder: (_, oldSnap) {
+                        if (oldSnap.hasError) {
+                          if (newDocs.isNotEmpty) {
+                            return _buildMainList(newDocs);
+                          }
+                          final msg = oldSnap.error.toString();
+                          final link = _extractIndexUrl(msg);
+                          return _IndexErrorCard(
+                            message: msg,
+                            indexUrl: link,
+                            onUseFallback: () => setState(() {
+                              _noIndexFallback = true;
+                            }),
+                          );
+                        }
+
+                        if (!oldSnap.hasData) {
+                          if (newDocs.isNotEmpty) return _buildMainList(newDocs);
+                          return const Center(child: CircularProgressIndicator());
+                        }
+
+                        final merged = _mergeAndSort(newDocs, oldSnap.data!.docs);
+                        return _buildMainList(merged);
+                      },
+                    );
+                  },
+                )),
     );
   }
 
-  // ─── เมนูเพิ่มเติมของหน้า (CSV/PDF/เทียบสัปดาห์) ──────────────────────
+  Widget _buildMainList(List<QueryDocumentSnapshot<Map<String, dynamic>>> docsAll) {
+    final byTypeAll = ReportUtils.aggregateByType(docsAll);
+
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs = docsAll;
+    if (_selectedTypeKeys.isNotEmpty) {
+      docs = docsAll
+          .where((d) => _selectedTypeKeys.contains((d['type'] ?? '').toString()))
+          .toList();
+    }
+
+    const target = 20.0;
+    final double pct = (docs.length / target).clamp(0, 1).toDouble();
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      children: [
+        _TopSummaryCard(
+          title: _rangeLabel(),
+          subtitle: _selectedTypeKeys.isEmpty
+              ? 'บันทึกทั้งหมดในช่วงนี้'
+              : 'ตัวกรอง: ${_selectedTypeKeys.map(_typeLabel).join(", ")}',
+          valueText: '${docs.length}',
+          progress: pct,
+          chip: _selectedTypeKeys.isEmpty
+              ? null
+              : InputChip(
+                  label: const Text('ล้างตัวกรอง'),
+                  deleteIcon: const Icon(Icons.close),
+                  onDeleted: () => setState(() => _selectedTypeKeys.clear()),
+                ),
+          onMore: () => _openMoreMenu(context, docs),
+        ),
+        const SizedBox(height: 8),
+
+        _buildFilterChips(byTypeAll, _types),
+        const SizedBox(height: 12),
+
+        Row(
+          children: [
+            const Text(
+              'รายการล่าสุด',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
+            const Spacer(),
+            TextButton(
+              onPressed: _selectedTypeKeys.isEmpty
+                  ? null
+                  : () => setState(() => _selectedTypeKeys.clear()),
+              child: const Text('ดูทั้งหมด'),
+            ),
+          ],
+        ),
+
+        if (docs.isEmpty)
+          const _EmptyRoundedCard(text: 'ยังไม่มีบันทึกในช่วงนี้')
+        else
+          Material(
+            color: Colors.white,
+            elevation: 3,
+            borderRadius: BorderRadius.circular(20),
+            child: ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: docs.length,
+              separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+              itemBuilder: (_, i) {
+                final d = docs[i];
+                final m = d.data();
+                final ts = (m['time'] as Timestamp?)?.toDate();
+                final date = ts != null ? _fmtDate(ts) : '-';
+                final time = ts != null
+                    ? '${ts.hour.toString().padLeft(2, '0')}:${ts.minute.toString().padLeft(2, '0')}'
+                    : '-';
+
+                return ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  leading: Container(
+                    height: 46,
+                    width: 46,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF4FF),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Center(
+                      child: _typeIcon((m['type'] ?? '').toString()),
+                    ),
+                  ),
+                  title: Text(_typeLabel((m['type'] ?? '').toString())),
+                  subtitle: Text('$date  $time\n${(m['note'] ?? '').toString()}'),
+                  isThreeLine: (m['note'] ?? '').toString().trim().isNotEmpty,
+                  trailing: IconButton(
+                    icon: const Icon(Icons.more_vert),
+                    onPressed: () => _showRowMenu(context, d),
+                  ),
+                );
+              },
+            ),
+          ),
+      ],
+    );
+  }
+
   void _openMoreMenu(
     BuildContext context,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
@@ -683,25 +731,14 @@ class _CareLogScreenState extends State<CareLogScreen> {
                 title: const Text('สรุปเป็น PDF'),
                 onTap: () async {
                   Navigator.pop(context);
-                  final (s, e) = _rangeStartEnd();
-                  final qs = _col
-                      .where('patientId', isEqualTo: widget.patientId)
-                      .where(
-                        'time',
-                        isGreaterThanOrEqualTo: Timestamp.fromDate(s),
-                      )
-                      .where('time', isLessThan: Timestamp.fromDate(e));
 
-                  final r = await qs.get();
-                  var list = r.docs;
+                  final (s, e) = _rangeStartEnd();
+                  var list = await _fetchRangeBoth(s, e);
 
                   if (_selectedTypeKeys.isNotEmpty) {
                     list = list
-                        .where(
-                          (d) => _selectedTypeKeys.contains(
-                            (d['type'] ?? '').toString(),
-                          ),
-                        )
+                        .where((d) => _selectedTypeKeys
+                            .contains((d['type'] ?? '').toString()))
                         .toList();
                   }
 
@@ -715,81 +752,6 @@ class _CareLogScreenState extends State<CareLogScreen> {
                     rows: rows,
                   );
                 },
-              ),
-              ListTile(
-                leading: const Icon(Icons.trending_up),
-                title: const Text('เทียบสัปดาห์ก่อน'),
-                enabled: _range == _Range.week,
-                onTap: _range != _Range.week
-                    ? null
-                    : () async {
-                        Navigator.pop(context);
-                        final (cs, ce) = _rangeStartEnd();
-                        final ps = cs.subtract(const Duration(days: 7));
-                        final pe = ce.subtract(const Duration(days: 7));
-
-                        Future<
-                          List<QueryDocumentSnapshot<Map<String, dynamic>>>
-                        >
-                        fetch(DateTime s, DateTime e) async {
-                          final r = await _col
-                              .where('patientId', isEqualTo: widget.patientId)
-                              .where(
-                                'time',
-                                isGreaterThanOrEqualTo: Timestamp.fromDate(s),
-                              )
-                              .where('time', isLessThan: Timestamp.fromDate(e))
-                              .get();
-                          var res = r.docs;
-                          if (_selectedTypeKeys.isNotEmpty) {
-                            res = res
-                                .where(
-                                  (d) => _selectedTypeKeys.contains(
-                                    (d['type'] ?? '').toString(),
-                                  ),
-                                )
-                                .toList();
-                          }
-                          return res;
-                        }
-
-                        final curr = await fetch(cs, ce);
-                        final prev = await fetch(ps, pe);
-
-                        final cMap = ReportUtils.aggregateByType(curr);
-                        final pMap = ReportUtils.aggregateByType(prev);
-                        final keys = {...cMap.keys, ...pMap.keys}.toList()
-                          ..sort();
-
-                        if (!mounted) return;
-                        showDialog(
-                          context: context,
-                          builder: (_) => AlertDialog(
-                            title: const Text('เทียบกับสัปดาห์ก่อน'),
-                            content: SingleChildScrollView(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  for (final k in keys)
-                                    ListTile(
-                                      title: Text(_typeLabel(k)),
-                                      trailing: Text(
-                                        '${(cMap[k] ?? 0) - (pMap[k] ?? 0) >= 0 ? '+' : ''}'
-                                        '${(cMap[k] ?? 0) - (pMap[k] ?? 0)}',
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text('ปิด'),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
               ),
             ],
           ),
@@ -832,9 +794,7 @@ class _CareLogScreenState extends State<CareLogScreen> {
                       ),
                       ElevatedButton(
                         onPressed: () async {
-                          await d.reference.update({
-                            'note': _noteCtl.text.trim(),
-                          });
+                          await d.reference.update({'note': _noteCtl.text.trim()});
                           if (mounted) Navigator.pop(context);
                         },
                         child: const Text('บันทึก'),
@@ -856,38 +816,6 @@ class _CareLogScreenState extends State<CareLogScreen> {
         ),
       ),
     );
-  }
-
-  Map<String, List<_CareType>> _groupTypes() {
-    final map = <String, List<_CareType>>{};
-    for (final t in _types) {
-      final g = _categoryOf(t);
-      map.putIfAbsent(g, () => []).add(t);
-    }
-    return map;
-  }
-
-  String _categoryOf(_CareType t) {
-    final k = t.key.toLowerCase();
-    final l = t.label.toLowerCase();
-    bool any(Iterable<String> a) =>
-        a.any((x) => k.contains(x) || l.contains(x));
-    if (any(['meal', 'eat', 'food', 'ข้าว', 'อาหาร', 'set_meal'])) {
-      return 'อาหาร';
-    }
-    if (any(['drink', 'water', 'ดื่ม', 'น้ำ', 'local_drink'])) {
-      return 'ดื่มน้ำ';
-    }
-    if (any(['med', 'ยา', 'dose', 'vacc'])) return 'ยา';
-    if (any(['turn', 'position', 'พลิก', 'rotate'])) return 'พลิกตัว';
-    if (any(['toilet', 'wc', 'defec', 'urine', 'ขับถ่าย'])) return 'ขับถ่าย';
-    if (any(['physio', 'exercise', 'กายภาพ', 'fitness'])) return 'กายภาพ';
-    if (any(['sleep', 'nap', 'นอน'])) return 'นอนหลับ';
-    if (any(['bp', 'vital', 'heart', 'ชีพ', 'blood'])) return 'สัญญาณชีพ';
-    if (any(['shower', 'clean', 'อาบน้ำ', 'ทำความสะอาด'])) {
-      return 'ทำความสะอาด';
-    }
-    return 'อื่น ๆ';
   }
 
   Widget _emptyTypesPlaceholder() {
@@ -917,7 +845,6 @@ class _CareLogScreenState extends State<CareLogScreen> {
     );
   }
 
-  /// ดึงลิงก์สร้าง Index ออกจากข้อความ error ของ Firestore
   String? _extractIndexUrl(String msg) {
     final re = RegExp(r'(https:\/\/console\.firebase\.google\.com\/[^\s]+)');
     final m = re.firstMatch(msg);
@@ -1095,10 +1022,7 @@ class _IndexErrorCard extends StatelessWidget {
             ),
             if (indexUrl != null) ...[
               const SizedBox(height: 8),
-              SelectableText(
-                indexUrl!,
-                style: const TextStyle(color: Colors.blue),
-              ),
+              SelectableText(indexUrl!, style: const TextStyle(color: Colors.blue)),
             ],
             const SizedBox(height: 12),
             FilledButton(
@@ -1112,17 +1036,12 @@ class _IndexErrorCard extends StatelessWidget {
   }
 }
 
-/// CSV encoder ง่าย ๆ
 class ListToCsv {
   const ListToCsv();
   String encode(List<List<String>> rows) =>
       rows.map((r) => r.map(_esc).join(',')).join('\n');
   String _esc(String v) {
-    final need =
-        v.contains(',') ||
-        v.contains('"') ||
-        v.contains('\n') ||
-        v.contains('\r');
+    final need = v.contains(',') || v.contains('"') || v.contains('\n') || v.contains('\r');
     if (!need) return v;
     final w = v.replaceAll('"', '""');
     return '"$w"';

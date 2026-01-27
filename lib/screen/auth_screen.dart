@@ -2,8 +2,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+
 import '../routes.dart';
 import '../color.dart';
+import '../services/push_service.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -23,8 +26,15 @@ class _AuthScreenState extends State<AuthScreen> {
   void initState() {
     super.initState();
     final u = FirebaseAuth.instance.currentUser;
+
+    // ✅ ถ้ามี user อยู่แล้ว: เซฟ token แล้วค่อยไปหน้า Home
     if (u != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _goHome());
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        try {
+          await PushService.instance.saveTokenForCurrentUser();
+        } catch (_) {}
+        if (mounted) _goHome();
+      });
     }
   }
 
@@ -36,12 +46,13 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   void _goHome() {
-    // ถ้าใน routes.dart ของคุณใช้ชื่อคงที่เป็น homeRoute ให้เปลี่ยน AppRoutes.home -> AppRoutes.homeRoute
     Navigator.pushNamedAndRemoveUntil(context, AppRoutes.home, (r) => false);
   }
 
   void _toast(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
+    );
   }
 
   String? _emailValidator(String? v) {
@@ -59,20 +70,55 @@ class _AuthScreenState extends State<AuthScreen> {
     return null;
   }
 
+  String _mapAuthError(String code) {
+    switch (code) {
+      case 'network-request-failed':
+        return 'เชื่อมต่ออินเทอร์เน็ตไม่ได้ ลองสลับ Wi-Fi/ปิด VPN แล้วลองใหม่';
+      case 'email-already-in-use':
+        return 'อีเมลนี้ถูกใช้แล้ว ลอง Sign in หรือใช้อีเมลอื่น';
+      case 'invalid-email':
+        return 'รูปแบบอีเมลไม่ถูกต้อง';
+      case 'weak-password':
+        return 'รหัสผ่านสั้นเกินไป (อย่างน้อย 6 ตัวอักษร)';
+      case 'user-not-found':
+        return 'ไม่พบบัญชีนี้ ลองสมัครสมาชิกก่อน';
+      case 'wrong-password':
+        return 'รหัสผ่านไม่ถูกต้อง';
+      case 'account-exists-with-different-credential':
+        return 'อีเมลนี้เคยสมัครด้วยวิธีอื่นแล้ว (ลอง Sign in ด้วยอีเมล/รหัสผ่าน)';
+      default:
+        return 'เกิดข้อผิดพลาด ($code)';
+    }
+  }
+
+  Future<void> _upsertUserDoc(User user, {bool isNew = false}) async {
+    final ref = FirebaseFirestore.instance.collection('users').doc(user.uid);
+    await ref.set({
+      'uid': user.uid,
+      'email': user.email,
+      'displayName': user.displayName,
+      'photoURL': user.photoURL,
+      'provider': user.providerData.isNotEmpty
+          ? user.providerData.first.providerId
+          : null,
+      if (isNew) 'createdAt': FieldValue.serverTimestamp(),
+      'lastLogin': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
   Future<void> _signIn() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => loading = true);
+
     try {
       final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: email.text.trim(),
         password: password.text,
       );
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(cred.user!.uid)
-          .set({
-            'lastLogin': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+
+      await _upsertUserDoc(cred.user!, isNew: false);
+      await PushService.instance.saveTokenForCurrentUser();
 
       if (!mounted) return;
       _goHome();
@@ -88,18 +134,15 @@ class _AuthScreenState extends State<AuthScreen> {
   Future<void> _signUp() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => loading = true);
+
     try {
       final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: email.text.trim(),
         password: password.text,
       );
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(cred.user!.uid)
-          .set({
-            'email': cred.user!.email,
-            'createdAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+
+      await _upsertUserDoc(cred.user!, isNew: true);
+      await PushService.instance.saveTokenForCurrentUser();
 
       if (!mounted) return;
       _goHome();
@@ -112,207 +155,379 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
-  String _mapAuthError(String code) {
-    switch (code) {
-      case 'network-request-failed':
-        return 'เชื่อมต่ออินเทอร์เน็ตไม่ได้ ลองสลับ Wi-Fi/ปิด VPN แล้วลองใหม่';
-      case 'email-already-in-use':
-        return 'อีเมลนี้ถูกใช้แล้ว ลอง Sign in หรือใช้อีเมลอื่น';
-      case 'invalid-email':
-        return 'รูปแบบอีเมลไม่ถูกต้อง';
-      case 'weak-password':
-        return 'รหัสผ่านสั้นเกินไป (อย่างน้อย 6 ตัวอักษร)';
-      case 'user-not-found':
-        return 'ไม่พบบัญชีนี้ ลองสมัครสมาชิกก่อน';
-      case 'wrong-password':
-        return 'รหัสผ่านไม่ถูกต้อง';
-      default:
-        return 'เกิดข้อผิดพลาด ($code)';
+  Future<void> _signInWithGoogle() async {
+    setState(() => loading = true);
+
+    try {
+      final googleUser = await GoogleSignIn().signIn();
+      if (googleUser == null) return; // ผู้ใช้กดยกเลิก
+
+      final googleAuth = await googleUser.authentication;
+
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      final userCred = await FirebaseAuth.instance.signInWithCredential(
+        credential,
+      );
+
+      final isNew = userCred.additionalUserInfo?.isNewUser ?? false;
+
+      await _upsertUserDoc(userCred.user!, isNew: isNew);
+      await PushService.instance.saveTokenForCurrentUser();
+
+      if (!mounted) return;
+      _goHome();
+    } on FirebaseAuthException catch (e) {
+      _toast(_mapAuthError(e.code));
+    } catch (e) {
+      _toast('Google Sign-In ไม่สำเร็จ: $e');
+    } finally {
+      if (mounted) setState(() => loading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
+    final mq = MediaQuery.of(context);
+    final size = mq.size;
+
+    final titleSize = (size.width * 0.09).clamp(26.0, 34.0);
 
     return Scaffold(
-      backgroundColor: AppColors.white,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.only(bottom: 24),
-          child: Column(
+      backgroundColor: Colors.transparent,
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          return Stack(
             children: [
-              // Header ไล่เฉดสี
-              Container(
-                height: 240,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [AppColors.pink, AppColors.redDeep],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                  borderRadius: const BorderRadius.only(
-                    bottomLeft: Radius.circular(50),
-                    bottomRight: Radius.circular(50),
-                  ),
-                ),
-                child: const Padding(
-                  padding: EdgeInsets.fromLTRB(20, 24, 20, 0),
-                  child: Align(
-                    alignment: Alignment.topLeft,
-                    child: Text(
-                      'Sign in / Sign up',
-                      style: TextStyle(
-                        fontSize: 34,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.black,
-                      ),
+              // ===== Background =====
+              Positioned.fill(
+                child: Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [AppColors.maroon, AppColors.redDeep],
                     ),
                   ),
                 ),
               ),
 
-              // การ์ดฟอร์ม
-              Transform.translate(
-                offset: const Offset(0, -36),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Material(
-                    elevation: 8,
-                    borderRadius: BorderRadius.circular(18),
-                    clipBehavior: Clip.antiAlias,
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.fromLTRB(18, 22, 18, 22),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: Form(
-                        key: _formKey,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            const Text(
-                              'Email',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: Colors.black87,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            TextFormField(
-                              controller: email,
-                              enabled: !loading,
-                              validator: _emailValidator,
-                              keyboardType: TextInputType.emailAddress,
-                              decoration: InputDecoration(
-                                prefixIcon: const Icon(Icons.mail_outline),
-                                hintText: 'you@example.com',
-                                filled: true,
-                                fillColor: const Color(0xFFF5F6FA),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                  borderSide: BorderSide.none,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 14),
-                            const Text(
-                              'Password',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: Colors.black87,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            TextFormField(
-                              controller: password,
-                              enabled: !loading,
-                              validator: _passValidator,
-                              obscureText: obscure,
-                              decoration: InputDecoration(
-                                prefixIcon: const Icon(Icons.lock_outline),
-                                hintText: '••••••••',
-                                filled: true,
-                                fillColor: const Color(0xFFF5F6FA),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                  borderSide: BorderSide.none,
-                                ),
-                                suffixIcon: IconButton(
-                                  onPressed: () =>
-                                      setState(() => obscure = !obscure),
-                                  icon: Icon(
-                                    obscure
-                                        ? Icons.visibility_outlined
-                                        : Icons.visibility_off_outlined,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 18),
+              // วงกลมตกแต่ง
+              Positioned(
+                top: -40,
+                right: -60,
+                child: _GlowCircle(
+                  size: (size.width * 0.55).clamp(200.0, 280.0),
+                  color: Colors.white.withOpacity(0.10),
+                ),
+              ),
+              Positioned(
+                top: 110,
+                left: -70,
+                child: _GlowCircle(
+                  size: (size.width * 0.45).clamp(180.0, 240.0),
+                  color: Colors.white.withOpacity(0.06),
+                ),
+              ),
 
-                            // ปุ่ม action
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                ElevatedButton(
-                                  onPressed: loading ? null : _signUp,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppColors.redDeep,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 22,
-                                      vertical: 12,
-                                    ),
-                                    shape: const StadiumBorder(),
-                                    elevation: 0,
-                                  ),
-                                  child: loading
-                                      ? const SizedBox(
-                                          width: 18,
-                                          height: 18,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : const Text('Create account'),
-                                ),
-                                const SizedBox(width: 12),
-                                OutlinedButton(
-                                  onPressed: loading ? null : _signIn,
-                                  style: OutlinedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 22,
-                                      vertical: 12,
-                                    ),
-                                    shape: const StadiumBorder(),
-                                  ),
-                                  child: const Text('Continue'),
+              // ✅ Content เต็มจอพอดี (และยัง scroll ได้)
+              SafeArea(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight - 24,
+                    ),
+                    child: IntrinsicHeight(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Sign in',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: titleSize,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'เข้าสู่ระบบเพื่อใช้งาน HelpCare',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.92),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+
+                          // Card
+                          Container(
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.18),
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.12),
+                                  blurRadius: 24,
+                                  offset: const Offset(0, 14),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 8),
-                            const Center(
-                              child: Text(
-                                'หากมีบัญชีอยู่แล้ว กด Continue เพื่อเข้าสู่ระบบ',
-                                style: TextStyle(color: Colors.black54),
+                            child: Material(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(18),
+                              clipBehavior: Clip.antiAlias,
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  18,
+                                  16,
+                                  18,
+                                ),
+                                child: Form(
+                                  key: _formKey,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      const Text(
+                                        'Email',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      TextFormField(
+                                        controller: email,
+                                        enabled: !loading,
+                                        validator: _emailValidator,
+                                        keyboardType:
+                                            TextInputType.emailAddress,
+                                        decoration: InputDecoration(
+                                          prefixIcon: const Icon(
+                                            Icons.mail_outline,
+                                          ),
+                                          hintText: 'you@example.com',
+                                          filled: true,
+                                          fillColor: const Color(0xFFF5F6FA),
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              14,
+                                            ),
+                                            borderSide: BorderSide.none,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 14),
+                                      const Text(
+                                        'Password',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      TextFormField(
+                                        controller: password,
+                                        enabled: !loading,
+                                        validator: _passValidator,
+                                        obscureText: obscure,
+                                        decoration: InputDecoration(
+                                          prefixIcon: const Icon(
+                                            Icons.lock_outline,
+                                          ),
+                                          hintText: '••••••••',
+                                          filled: true,
+                                          fillColor: const Color(0xFFF5F6FA),
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              14,
+                                            ),
+                                            borderSide: BorderSide.none,
+                                          ),
+                                          suffixIcon: IconButton(
+                                            onPressed: loading
+                                                ? null
+                                                : () => setState(
+                                                    () => obscure = !obscure,
+                                                  ),
+                                            icon: Icon(
+                                              obscure
+                                                  ? Icons.visibility_outlined
+                                                  : Icons
+                                                        .visibility_off_outlined,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 18),
+
+                                      SizedBox(
+                                        height: 48,
+                                        child: ElevatedButton(
+                                          onPressed: loading ? null : _signIn,
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: AppColors.redDeep,
+                                            foregroundColor: Colors.white,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                            ),
+                                            elevation: 0,
+                                          ),
+                                          child: loading
+                                              ? const SizedBox(
+                                                  width: 18,
+                                                  height: 18,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                      ),
+                                                )
+                                              : const Text(
+                                                  'Continue',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                                ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+
+                                      SizedBox(
+                                        height: 48,
+                                        child: OutlinedButton(
+                                          onPressed: loading ? null : _signUp,
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: Colors.black87,
+                                            side: const BorderSide(
+                                              color: Color(0x22000000),
+                                            ),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                            ),
+                                          ),
+                                          child: const Text(
+                                            'Create account',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+
+                                      const SizedBox(height: 14),
+
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Container(
+                                              height: 1,
+                                              color: const Color(0x22000000),
+                                            ),
+                                          ),
+                                          const Padding(
+                                            padding: EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                            ),
+                                            child: Text(
+                                              'หรือ',
+                                              style: TextStyle(
+                                                color: Colors.black54,
+                                              ),
+                                            ),
+                                          ),
+                                          Expanded(
+                                            child: Container(
+                                              height: 1,
+                                              color: const Color(0x22000000),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+
+                                      const SizedBox(height: 14),
+
+                                      SizedBox(
+                                        height: 48,
+                                        child: OutlinedButton.icon(
+                                          onPressed: loading
+                                              ? null
+                                              : _signInWithGoogle,
+                                          icon: const Icon(
+                                            Icons.g_mobiledata_rounded,
+                                            size: 28,
+                                          ),
+                                          label: const Text(
+                                            'Continue with Google',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: Colors.black87,
+                                            backgroundColor: const Color(
+                                              0xFFF5F6FA,
+                                            ),
+                                            side: BorderSide.none,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+
+                                      const SizedBox(height: 10),
+                                      const Center(
+                                        child: Text(
+                                          'หากมีบัญชีอยู่แล้ว กด Continue เพื่อเข้าสู่ระบบ',
+                                          style: TextStyle(
+                                            color: Colors.black54,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
-                          ],
-                        ),
+                          ),
+
+                          const Spacer(), // ✅ ดันให้เต็มจอพอดี
+                        ],
                       ),
                     ),
                   ),
                 ),
               ),
-              SizedBox(height: size.height * 0.02),
             ],
-          ),
-        ),
+          );
+        },
       ),
+    );
+  }
+}
+
+class _GlowCircle extends StatelessWidget {
+  final double size;
+  final Color color;
+  const _GlowCircle({required this.size, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
     );
   }
 }

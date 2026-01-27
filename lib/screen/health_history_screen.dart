@@ -6,9 +6,9 @@ class HealthHistoryScreen extends StatelessWidget {
   final String patientId;
   const HealthHistoryScreen({super.key, required this.patientId});
 
-  String _fmtDate(DateTime d) => '${d.day}/${d.month}/${d.year + 543}';
+  String _fmtDate(DateTime d) => "${d.day}/${d.month}/${d.year + 543}";
   String _fmtTime(DateTime d) =>
-      '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+      "${d.hour.toString().padLeft(2, "0")}:${d.minute.toString().padLeft(2, "0")}";
 
   // โทนสีอ่อนสุ่มจาก type ให้สวย ตาอ่านง่าย
   Color _softColorFor(String key) {
@@ -16,7 +16,6 @@ class HealthHistoryScreen extends StatelessWidget {
     final r = ((base >> 16) & 0xFF);
     final g = ((base >> 8) & 0xFF);
     final b = ((base) & 0xFF);
-    // ผสมให้สว่างขึ้น
     return Color.fromARGB(
       255,
       ((r + 240) ~/ 2),
@@ -58,10 +57,13 @@ class HealthHistoryScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ไม่บังคับ composite index: ดึงเฉพาะของคนนี้แล้ว sort ฝั่ง client
+    // ✅ ใช้โครงสร้างใหม่: patients/{patientId}/care_logs
+    // (ถ้ายังไม่มี doc -> subcollection จะไม่โชว์ใน console)
     final q = FirebaseFirestore.instance
+        .collection('patients')
+        .doc(patientId)
         .collection('care_logs')
-        .where('patientId', isEqualTo: patientId)
+        .orderBy('time', descending: true)
         .limit(500);
 
     return Scaffold(
@@ -83,21 +85,13 @@ class HealthHistoryScreen extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          // copy + sort ใหม่ (ล่าสุดก่อน)
-          final docs = [...snap.data!.docs];
-          docs.sort((a, b) {
-            final ta = (a.data()['time'] as Timestamp?);
-            final tb = (b.data()['time'] as Timestamp?);
-            final va = ta?.millisecondsSinceEpoch ?? 0;
-            final vb = tb?.millisecondsSinceEpoch ?? 0;
-            return vb.compareTo(va);
-          });
+          final docs = snap.data!.docs;
 
           // group by dayKey = DateTime(yyyy,mm,dd)
           final Map<DateTime, List<QueryDocumentSnapshot<Map<String, dynamic>>>>
           byDay = {};
           for (final d in docs) {
-            final ts = (d['time'] as Timestamp?)?.toDate();
+            final ts = (d.data()['time'] as Timestamp?)?.toDate();
             if (ts == null) continue;
             final k = DateTime(ts.year, ts.month, ts.day);
             byDay.putIfAbsent(k, () => []).add(d);
@@ -121,13 +115,15 @@ class HealthHistoryScreen extends StatelessWidget {
                 children: [
                   for (int idx = 0; idx < list.length; idx++)
                     _HistoryRow(
-                      type: (list[idx]['type'] ?? '').toString(),
-                      time: (list[idx]['time'] as Timestamp?)?.toDate(),
-                      note: (list[idx]['note'] ?? '').toString(),
+                      type: (list[idx].data()['type'] ?? '').toString(),
+                      time: (list[idx].data()['time'] as Timestamp?)?.toDate(),
+                      note: (list[idx].data()['note'] ?? '').toString(),
                       softColor: _softColorFor(
-                        (list[idx]['type'] ?? '').toString(),
+                        (list[idx].data()['type'] ?? '').toString(),
                       ),
-                      icon: _iconForType((list[idx]['type'] ?? '').toString()),
+                      icon: _iconForType(
+                        (list[idx].data()['type'] ?? '').toString(),
+                      ),
                       isLast: idx == list.length - 1,
                     ),
                 ],
@@ -168,7 +164,6 @@ class _DayCard extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // Header
           Container(
             padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
             decoration: BoxDecoration(
@@ -209,7 +204,7 @@ class _DayCard extends StatelessWidget {
                     border: Border.all(color: Colors.white.withOpacity(.35)),
                   ),
                   child: Text(
-                    '$total รายการ',
+                    "$total รายการ",
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w700,
@@ -219,7 +214,6 @@ class _DayCard extends StatelessWidget {
               ],
             ),
           ),
-          // Body
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
             child: Column(children: children),
@@ -230,7 +224,7 @@ class _DayCard extends StatelessWidget {
   }
 }
 
-/// แถวข้อมูลสวยๆ: ไอคอนในกรอบสีอ่อน + เวลาเด่น + โน้ต
+/// แถวข้อมูลสวยๆ
 class _HistoryRow extends StatelessWidget {
   final String type;
   final DateTime? time;
@@ -249,7 +243,7 @@ class _HistoryRow extends StatelessWidget {
   });
 
   String _fmtTime(DateTime d) =>
-      '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+      "${d.hour.toString().padLeft(2, "0")}:${d.minute.toString().padLeft(2, "0")}";
 
   @override
   Widget build(BuildContext context) {
@@ -259,7 +253,6 @@ class _HistoryRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Row(
         children: [
-          // ไอคอนในกรอบสีอ่อน
           Container(
             width: 44,
             height: 44,
@@ -271,7 +264,6 @@ class _HistoryRow extends StatelessWidget {
             child: Icon(icon, color: Colors.black87),
           ),
           const SizedBox(width: 10),
-          // เนื้อหา
           Expanded(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -283,7 +275,6 @@ class _HistoryRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // บรรทัดแรก: ชนิด + เวลา
                   Row(
                     children: [
                       Expanded(
@@ -314,7 +305,6 @@ class _HistoryRow extends StatelessWidget {
                       ),
                     ],
                   ),
-                  // โน้ต (ถ้ามี)
                   if (note.trim().isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Text(
