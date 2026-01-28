@@ -78,9 +78,11 @@ class _CareNewsScreenState extends State<CareNewsScreen> {
         loading = false;
       });
     } catch (e) {
+      // ✅ เก็บ error ไว้เงียบๆ (ไม่แสดงข้อความข้างล่างแล้ว)
       setState(() {
         error = e.toString();
         loading = false;
+        items = [];
       });
     }
   }
@@ -191,14 +193,12 @@ class _CareNewsScreenState extends State<CareNewsScreen> {
                   if (loading) {
                     return const Center(child: CircularProgressIndicator());
                   }
+
+                  // ✅ ไม่แสดงข้อความ error ใดๆ แล้ว
                   if (error != null) {
-                    return Center(
-                      child: Text(
-                        'โหลดข่าวไม่สำเร็จ\n$error',
-                        textAlign: TextAlign.center,
-                      ),
-                    );
+                    return const SizedBox.shrink();
                   }
+
                   if (items.isEmpty) {
                     return const Center(child: Text('ยังไม่มีข่าว'));
                   }
