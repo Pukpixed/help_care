@@ -1,5 +1,3 @@
-// android/app/build.gradle.kts
-
 plugins {
     id("com.android.application")
     id("com.google.gms.google-services")
@@ -8,22 +6,27 @@ plugins {
 }
 
 android {
+    // ✅ ต้องตรงกับ Firebase
     namespace = "com.example.helpcare"
-    compileSdk = flutter.compileSdkVersion
+
+    // ✅ plugin บังคับให้ใช้สูง
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     defaultConfig {
+        // ✅ ต้องตรงกับ Firebase
         applicationId = "com.example.helpcare"
+
+        // ✅ รองรับ Android กว้างสุด
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 34   // หรือ 36 ก็ได้
+
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
-        // เผื่อโปรเจกต์ใหญ่ + Firebase หลายตัว (ปลอดภัยไว้ก่อน)
         multiDexEnabled = true
     }
 
-    // Java 17 + desugaring
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -34,22 +37,16 @@ android {
         jvmTarget = "17"
     }
 
-    // (ไม่จำเป็นต้องกำหนด signingConfig เองใน release ถ้ายังไม่ได้ตั้ง keystore จริง)
     buildTypes {
         debug {
-            // ค่าเริ่มต้นก็ได้ แต่อันนี้ชัดเจน
             isMinifyEnabled = false
             isShrinkResources = false
         }
 
         release {
-            // แนะนำให้ปิดไว้ก่อนตอนกำลังพัฒนา (กัน R8/Proguard พัง)
+            // ✅ แจก APK ปิดไว้ก่อน
             isMinifyEnabled = false
             isShrinkResources = false
-
-            // ❌ ไม่แนะนำให้ใช้ debug keystore สำหรับ release
-            // ถ้ายังไม่มี keystore จริง ให้ลบบรรทัด signingConfig ออก
-            // signingConfig = signingConfigs.getByName("debug")
         }
     }
 }
@@ -59,6 +56,6 @@ flutter {
 }
 
 dependencies {
-    // desugaring (>= 2.1.4)
+    // ✅ จำเป็นสำหรับ Java 17
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

@@ -12,7 +12,7 @@
     <!-- Notifications (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Alarm (exact) -->
+    <!-- Exact Alarm (จำเป็นจริง → ขอที่ Settings ตอนใช้งาน) -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <!-- Wake lock -->
@@ -22,9 +22,10 @@
         android:name="${applicationName}"
         android:label="helpcare"
         android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="true"
+        android:allowBackup="true">
 
-        <!-- FCM default channel id -->
+        <!-- Firebase FCM default channel -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="high_importance_channel" />
@@ -47,20 +48,19 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-
         </activity>
 
-        <!-- Flutter v2 embedding -->
+        <!-- Flutter embedding v2 -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
 
-        <!-- ✅ (แนะนำ) ถ้าใช้ flutter_local_notifications แล้วเจอ error เกี่ยวกับ receiver
-             โดยปกติไม่ต้องใส่เอง แต่บางโปรเจกต์/บางเวอร์ชันจะช่วยให้ stable -->
+        <!-- flutter_local_notifications receivers -->
         <receiver
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"
             android:exported="false"
             tools:node="merge" />
+
         <receiver
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
             android:exported="false"
@@ -73,7 +73,7 @@
 
     </application>
 
-    <!-- Queries: url_launcher เปิดเว็บบน Android 11+ -->
+    <!-- Queries (Android 11+) -->
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />
@@ -83,7 +83,6 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="http" />
         </intent>
-
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />
