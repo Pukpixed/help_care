@@ -8,11 +8,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-<<<<<<< HEAD
-import 'package:help_care/main.dart';
-=======
-import 'package:helpcare/main.dart';
->>>>>>> c3bd551 (Initial commit: help_care app)
+import 'package:helpcare_new/main.dart';
 
 void main() {
   testWidgets('Counter increments smoke test', (WidgetTester tester) async {

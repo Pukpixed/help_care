@@ -5,11 +5,13 @@ class MedNotifService {
   MedNotifService._();
   static final instance = MedNotifService._();
 
+  /// แปลง "08:00" -> TimeOfDay
   TimeOfDay _toTimeOfDay(String hhmm) {
     final parts = hhmm.split(':');
     return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
   }
 
+  /// สร้าง schedule แจ้งเตือนรายวันตามเวลา
   Future<List<int>> scheduleForSchedule({
     required String docId,
     required String drug,
@@ -21,9 +23,14 @@ class MedNotifService {
     final ids = <int>[];
 
     for (final t in doseTimes) {
-      final id = LocalNotifService.instance.buildNotifId(docId, t);
+      final time = _toTimeOfDay(t);
+
+      // สร้าง id ไม่ซ้ำ
+      final id = LocalNotifService.instance.buildNotifId(docId, time);
+
       ids.add(id);
 
+      // จัดข้อความเรื่องอาหาร
       final mealText =
           (mealTiming == null ||
               mealTiming.isEmpty ||
@@ -31,15 +38,29 @@ class MedNotifService {
           ? ''
           : ' • $mealTiming';
 
+      // ตั้งแจ้งเตือนรายวัน
       await LocalNotifService.instance.scheduleDailyAt(
         id: id,
         title: 'ถึงเวลาทานยา',
         body: '$drug $dose $unit • $t$mealText',
-        time: _toTimeOfDay(t),
+        time: time,
         payloadData: {'collection': 'med_schedules', 'docId': docId, 'time': t},
       );
     }
 
     return ids;
+  }
+
+  /// ยกเลิกแจ้งเตือนทั้งหมดของ schedule นี้
+  Future<void> cancelSchedule({
+    required String docId,
+    required List<String> doseTimes,
+  }) async {
+    for (final t in doseTimes) {
+      final time = _toTimeOfDay(t);
+      final id = LocalNotifService.instance.buildNotifId(docId, time);
+
+      await LocalNotifService.instance.cancel(id);
+    }
   }
 }

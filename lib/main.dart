@@ -4,7 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'routes.dart';
 
-// ✅ เพิ่มระบบแจ้งเตือน
+// 🔔 Notification Services
 import 'services/local_notif_service.dart';
 import 'services/push_service.dart';
 
@@ -12,47 +12,47 @@ final GlobalKey<NavigatorState> navKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  /// ✅ ซ่อน Error overlay / Red screen
+  ErrorWidget.builder = (details) => const SizedBox.shrink();
+
+  /// ✅ Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // ✅ init Local Notifications + handle tap
-  await LocalNotifService.instance.init(
-    onTap: (data) {
-      final collection = (data['collection'] ?? '').toString();
-      final docId = (data['docId'] ?? '').toString();
+  /// 🔔 Local Notification
+  await LocalNotifService.instance.init(onTap: _handleLocalNotificationTap);
 
-      // ✅ ถ้าเป็นตารางยา -> ไปหน้า “ตารางการให้ยา”
-      if (collection == 'med_schedules') {
-        _safePushNamedStatic(AppRoutes.dailyCare); // ✅ ใช้ตัวเดียวพอ
-        // ถ้ามีหน้ารายละเอียดค่อยส่ง docId ไปภายหลัง
-        // if (docId.isNotEmpty) { ... }
-        return;
-      }
-
-      // fallback
-      _safePushNamedStatic(AppRoutes.notifications);
-    },
-  );
-
-  await LocalNotifService.instance.requestAndroid13PermissionIfNeeded();
-
-  // ✅ init Push
+  /// 🔔 Push (FCM)
   await PushService.instance.init();
   await PushService.instance.saveTokenForCurrentUser();
 
   runApp(const MyApp());
 }
 
-// ✅ helper แบบ static ใช้ใน main() ได้
-void _safePushNamedStatic(String route, {Object? arguments}) {
+/// =======================================================
+/// 🔔 Local Notification Tap Handler
+/// =======================================================
+void _handleLocalNotificationTap(Map<String, String> data) {
+  final collection = data['collection'] ?? '';
+
   WidgetsBinding.instance.addPostFrameCallback((_) {
-    final st = navKey.currentState;
-    if (st == null) return;
-    st.pushNamed(route, arguments: arguments);
+    final state = navKey.currentState;
+    if (state == null) return;
+
+    if (collection == 'med_schedules') {
+      state.pushNamed(AppRoutes.dailyCare);
+    } else {
+      state.pushNamed(AppRoutes.notifications);
+    }
   });
 }
 
+/// =======================================================
+/// APP
+/// =======================================================
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
   @override
   State<MyApp> createState() => _MyAppState();
 }
@@ -62,8 +62,10 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
 
+    /// 👉 กดแจ้งเตือนตอนแอปเปิด
     PushService.instance.onNotificationTap(_routeFromNotificationData);
 
+    /// 👉 เปิดแอปจาก terminated
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await PushService.instance.handleInitialMessage(
         _routeFromNotificationData,
@@ -71,57 +73,54 @@ class _MyAppState extends State<MyApp> {
     });
   }
 
-  void _safePushNamed(String route, {Object? arguments}) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final st = navKey.currentState;
-      if (st == null) return;
-      st.pushNamed(route, arguments: arguments);
-    });
-  }
-
+  /// ===================================================
+  /// Route จาก notification data (Push)
+  /// ===================================================
   void _routeFromNotificationData(Map<String, dynamic> data) {
     final type = (data['type'] ?? '').toString();
 
-    if (type.isEmpty) {
-      _safePushNamed(AppRoutes.notifications);
-      return;
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final state = navKey.currentState;
+      if (state == null) return;
 
-    if (type == 'sos') {
-      _safePushNamed(AppRoutes.sos);
-      return;
-    }
+      switch (type) {
+        case 'sos':
+          state.pushNamed(AppRoutes.sos);
+          break;
 
-    if (type == 'careLog') {
-      final patientId = (data['patientId'] ?? '').toString();
-      if (patientId.isEmpty) {
-        _safePushNamed(AppRoutes.home);
-        return;
+        case 'careLog':
+          final patientId = (data['patientId'] ?? '').toString();
+          if (patientId.isEmpty) {
+            state.pushNamed(AppRoutes.home);
+          } else {
+            state.pushNamed(
+              AppRoutes.careLog,
+              arguments: {'patientId': patientId},
+            );
+          }
+          break;
+
+        case 'dailyCare':
+        case 'medSchedule':
+          state.pushNamed(AppRoutes.dailyCare);
+          break;
+
+        case 'notification':
+          final nid = (data['notificationId'] ?? '').toString();
+          if (nid.isNotEmpty) {
+            state.pushNamed(
+              AppRoutes.notificationDetail,
+              arguments: {'notificationId': nid},
+            );
+          } else {
+            state.pushNamed(AppRoutes.notifications);
+          }
+          break;
+
+        default:
+          state.pushNamed(AppRoutes.home);
       }
-      _safePushNamed(AppRoutes.careLog, arguments: {'patientId': patientId});
-      return;
-    }
-
-    // ✅ เปลี่ยน: dailyCare / medSchedule ใช้ route เดียว
-    if (type == 'dailyCare' || type == 'medSchedule') {
-      _safePushNamed(AppRoutes.dailyCare);
-      return;
-    }
-
-    if (type == 'notification') {
-      final nid = (data['notificationId'] ?? '').toString();
-      if (nid.isNotEmpty) {
-        _safePushNamed(
-          AppRoutes.notificationDetail,
-          arguments: {'notificationId': nid},
-        );
-      } else {
-        _safePushNamed(AppRoutes.notifications);
-      }
-      return;
-    }
-
-    _safePushNamed(AppRoutes.home);
+    });
   }
 
   @override
@@ -129,8 +128,8 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       navigatorKey: navKey,
       title: 'helpcare',
-      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.purple),
       debugShowCheckedModeBanner: false,
+      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.purple),
       initialRoute: AppRoutes.first,
       onGenerateRoute: AppRoutes.onGenerateRoute,
     );

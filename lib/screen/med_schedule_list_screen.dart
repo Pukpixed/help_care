@@ -1355,7 +1355,6 @@ class _MedModernCard extends StatelessWidget {
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(18),
-      elevation: 0,
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
         onTap: onEdit,
@@ -1363,33 +1362,28 @@ class _MedModernCard extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x14000000),
-                blurRadius: 18,
-                offset: Offset(0, 10),
-              ),
-            ],
             border: Border.all(color: _wine.withOpacity(.10)),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 46,
-                height: 46,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
                   color: _soft,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(14),
                 ),
                 child: const Icon(Icons.medication_outlined, color: _wine),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
 
+              /// ===== CONTENT =====
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    /// title + time
                     Row(
                       children: [
                         Expanded(
@@ -1403,20 +1397,24 @@ class _MedModernCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        _Badge(
-                          icon: Icons.access_time,
-                          text: time,
-                          bg: const Color(0xFFEFF7FF),
-                          fg: _wine,
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: _Badge(
+                            icon: Icons.access_time,
+                            text: time,
+                            bg: const Color(0xFFEFF7FF),
+                            fg: _wine,
+                          ),
                         ),
                       ],
                     ),
+
                     const SizedBox(height: 8),
 
+                    /// badges
                     Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                      spacing: 6,
+                      runSpacing: 6,
                       children: [
                         _Badge(
                           icon: Icons.restaurant_outlined,
@@ -1434,7 +1432,7 @@ class _MedModernCard extends StatelessWidget {
                     ),
 
                     if (dose.isNotEmpty || note.isNotEmpty) ...[
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 8),
                       Text(
                         [
                           if (dose.isNotEmpty) 'ขนาดยา: $dose',
@@ -1442,8 +1440,7 @@ class _MedModernCard extends StatelessWidget {
                         ].join('\n'),
                         style: TextStyle(
                           height: 1.25,
-                          color: Colors.black.withOpacity(.62),
-                          fontWeight: FontWeight.w600,
+                          color: Colors.black.withOpacity(.65),
                           fontSize: isNarrow ? 12.5 : 13.5,
                         ),
                       ),
@@ -1452,36 +1449,38 @@ class _MedModernCard extends StatelessWidget {
                 ),
               ),
 
-              const SizedBox(width: 10),
+              const SizedBox(width: 6),
 
+              /// ===== RIGHT SIDE =====
               Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Switch(
-                    value: enabled,
-                    activeColor: _wine,
-                    onChanged: onToggle,
+                  Transform.scale(
+                    scale: isNarrow ? 0.85 : 1,
+                    child: Switch(
+                      value: enabled,
+                      activeColor: _wine,
+                      onChanged: onToggle,
+                    ),
                   ),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                        tooltip: 'แก้ไข',
                         visualDensity: const VisualDensity(
-                          horizontal: -3,
-                          vertical: -3,
+                          horizontal: -4,
+                          vertical: -4,
                         ),
                         onPressed: onEdit,
-                        icon: const Icon(Icons.edit_outlined),
+                        icon: const Icon(Icons.edit_outlined, size: 20),
                       ),
                       IconButton(
-                        tooltip: 'เพิ่มเติม',
                         visualDensity: const VisualDensity(
-                          horizontal: -3,
-                          vertical: -3,
+                          horizontal: -4,
+                          vertical: -4,
                         ),
                         onPressed: onMore,
-                        icon: const Icon(Icons.more_vert),
+                        icon: const Icon(Icons.more_vert, size: 20),
                       ),
                     ],
                   ),
@@ -1510,22 +1509,32 @@ class _Badge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: fg),
-          const SizedBox(width: 6),
-          Text(
-            text,
-            style: TextStyle(fontWeight: FontWeight.w900, color: fg),
-          ),
-        ],
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 140),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: fg),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                text,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: fg,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

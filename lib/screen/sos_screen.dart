@@ -347,206 +347,191 @@ class _SosScreenState extends State<SosScreen> {
           ),
         ),
         child: SafeArea(
-          child: Column(
-            children: [
-              const SizedBox(height: 16),
-              // การ์ดสถานะบัดดี้
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.96),
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x22000000),
-                        blurRadius: 10,
-                        offset: Offset(0, 5),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: hasBuddy
-                              ? const Color(0xFFFFE5E8)
-                              : const Color(0xFFEFEFEF),
-                          borderRadius: BorderRadius.circular(99),
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                const SizedBox(height: 16),
+
+                // การ์ดสถานะบัดดี้
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.96),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x22000000),
+                          blurRadius: 10,
+                          offset: Offset(0, 5),
                         ),
-                        child: Icon(
-                          hasBuddy
-                              ? Icons.favorite_rounded
-                              : Icons.person_add_alt_1,
-                          size: 18,
-                          color: hasBuddy ? _brandRed : Colors.grey[700],
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          hasBuddy
-                              ? 'บัดดี้ของคุณ: ${_buddyName ?? _buddyUid}'
-                              : 'ยังไม่ได้ตั้งค่าบัดดี้ แนะนำให้จับคู่เพื่อนหรือญาติไว้ช่วยรับ SOS',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
                             color: hasBuddy
-                                ? _brandMaroon
-                                : Colors.grey.shade800,
+                                ? const Color(0xFFFFE5E8)
+                                : const Color(0xFFEFEFEF),
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                          child: Icon(
+                            hasBuddy
+                                ? Icons.favorite_rounded
+                                : Icons.person_add_alt_1,
+                            size: 18,
+                            color: hasBuddy ? _brandRed : Colors.grey[700],
                           ),
                         ),
-                      ),
-                      TextButton(
-                        onPressed: () async {
-                          final paired = await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const BuddyPairScreen(),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            hasBuddy
+                                ? 'บัดดี้ของคุณ: ${_buddyName ?? _buddyUid}'
+                                : 'ยังไม่ได้ตั้งค่าบัดดี้ แนะนำให้จับคู่เพื่อนหรือญาติไว้ช่วยรับ SOS',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              color: hasBuddy
+                                  ? _brandMaroon
+                                  : Colors.grey.shade800,
                             ),
-                          );
-                          if (paired == true) await _loadBuddy();
-                        },
-                        child: const Text('จัดการ'),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () async {
+                            final paired = await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const BuddyPairScreen(),
+                              ),
+                            );
+                            if (paired == true) await _loadBuddy();
+                          },
+                          child: const Text('จัดการ'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 30),
+
+                // ปุ่ม SOS
+                GestureDetector(
+                  onLongPress: _startCountdown,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 280),
+                        width: _countdown > 0 ? 260 : 240,
+                        height: _countdown > 0 ? 260 : 240,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: _brandRed.withOpacity(0.45),
+                              blurRadius: 42,
+                              spreadRadius: 10,
+                            ),
+                          ],
+                        ),
+                      ),
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        width: 220,
+                        height: 220,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: _countdown > 0
+                                ? [_brandMaroon, _brandRed]
+                                : [_brandRed, const Color(0xFFFF6B7A)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Center(
+                          child: _sending
+                              ? const CircularProgressIndicator(
+                                  color: Colors.white,
+                                )
+                              : Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text(
+                                      'SOS',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 44,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 4,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      _countdown > 0
+                                          ? 'กำลังส่งใน $_countdown วิ'
+                                          : 'กดค้างเพื่อส่ง SOS',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                        ),
                       ),
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 30),
 
-              // SOS button + คำอธิบาย
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  children: [
-                    // ปุ่ม SOS ใหญ่
-                    GestureDetector(
-                      onLongPress: _startCountdown,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          // วงแหวนเรืองแสง
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 280),
-                            width: _countdown > 0 ? 260 : 240,
-                            height: _countdown > 0 ? 260 : 240,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: _brandRed.withOpacity(0.45),
-                                  blurRadius: 42,
-                                  spreadRadius: 10,
-                                ),
-                              ],
-                            ),
-                          ),
-                          // วงกลมหลัก
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 220),
-                            width: 220,
-                            height: 220,
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: _countdown > 0
-                                    ? [_brandMaroon, _brandRed]
-                                    : [_brandRed, const Color(0xFFFF6B7A)],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Center(
-                              child: _sending
-                                  ? const CircularProgressIndicator(
-                                      color: Colors.white,
-                                    )
-                                  : Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Text(
-                                          'SOS',
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 44,
-                                            fontWeight: FontWeight.w900,
-                                            letterSpacing: 4,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          _countdown > 0
-                                              ? 'กำลังส่งใน $_countdown วิ'
-                                              : 'กดค้างเพื่อส่ง SOS',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
+                const SizedBox(height: 24),
 
-                    if (_countdown > 0)
-                      TextButton.icon(
-                        onPressed: _cancelCountdown,
-                        icon: const Icon(Icons.close),
-                        label: const Text('ยกเลิกการส่ง SOS'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: _brandMaroon,
-                        ),
-                      ),
-                    const SizedBox(height: 18),
+                if (_countdown > 0)
+                  TextButton.icon(
+                    onPressed: _cancelCountdown,
+                    icon: const Icon(Icons.close),
+                    label: const Text('ยกเลิกการส่ง SOS'),
+                  ),
 
-                    // ปุ่มโทร 1669
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.local_phone_outlined),
-                      label: const Text('โทรฉุกเฉิน 1669'),
-                      onPressed: () => launchUrl(Uri.parse('tel:1669')),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: _brandMaroon,
-                        side: const BorderSide(color: _brandRed, width: 1.4),
-                        shape: const StadiumBorder(),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 26,
-                          vertical: 12,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 26),
+                const SizedBox(height: 18),
 
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 28),
-                      child: Text(
-                        'กดค้างที่ปุ่ม SOS เพื่อส่งสัญญาณฉุกเฉิน ระบบจะบันทึกพิกัดปัจจุบัน '
-                        'และแจ้งเตือนไปยังผู้ดูแลของคุณ\n'
-                        'หากตั้งค่าบัดดี้ไว้ ระบบจะส่ง SOS ไปแจ้งเตือนให้บัดดี้ด้วย\n'
-                        'ระหว่างนับถอยหลังจะมีเสียงไซเรน หากกดผิดสามารถกดยกเลิกได้',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade800,
-                          height: 1.4,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.local_phone_outlined),
+                  label: const Text('โทรฉุกเฉิน 1669'),
+                  onPressed: () => launchUrl(Uri.parse('tel:1669')),
                 ),
-              ),
-            ],
+
+                const SizedBox(height: 26),
+
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 28),
+                  child: Text(
+                    'กดค้างที่ปุ่ม SOS เพื่อส่งสัญญาณฉุกเฉิน ระบบจะบันทึกพิกัดปัจจุบัน '
+                    'และแจ้งเตือนไปยังผู้ดูแลของคุณ\n'
+                    'หากตั้งค่าบัดดี้ไว้ ระบบจะส่ง SOS ไปแจ้งเตือนให้บัดดี้ด้วย\n'
+                    'ระหว่างนับถอยหลังจะมีเสียงไซเรน หากกดผิดสามารถกดยกเลิกได้',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade800,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+              ],
+            ),
           ),
         ),
       ),

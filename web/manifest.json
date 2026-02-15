@@ -1,11 +1,6 @@
 {
-<<<<<<< HEAD
-    "name": "help_care",
-    "short_name": "help_care",
-=======
-    "name": "helpcare",
-    "short_name": "helpcare",
->>>>>>> c3bd551 (Initial commit: help_care app)
+    "name": "helpcare_new",
+    "short_name": "helpcare_new",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

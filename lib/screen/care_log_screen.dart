@@ -124,8 +124,9 @@ class _CareLogScreenState extends State<CareLogScreen> {
       .collection('care_logs');
 
   /// ✅ เดิม: care_logs (root)
-  final CollectionReference<Map<String, dynamic>> _legacyCol =
-      FirebaseFirestore.instance.collection('care_logs');
+  final CollectionReference<Map<String, dynamic>> _legacyCol = FirebaseFirestore
+      .instance
+      .collection('care_logs');
 
   /// ✅ อ่านทั้งใหม่+เก่า ระหว่างช่วงย้าย
   static const bool _enableLegacyRead = true;
@@ -182,41 +183,46 @@ class _CareLogScreenState extends State<CareLogScreen> {
   }
 
   void _listenTypes() {
-    _typesSub = _typeCol.orderBy('order', descending: false).snapshots().listen(
-      (s) {
-        final docs = s.docs.toList();
-        docs.sort((a, b) {
-          final ma = a.data();
-          final mb = b.data();
-          final ao = (ma['order'] is int) ? ma['order'] as int : 999999;
-          final bo = (mb['order'] is int) ? mb['order'] as int : 999999;
-          if (ao != bo) return ao.compareTo(bo);
-          final al = (ma['label'] ?? '').toString().toLowerCase();
-          final bl = (mb['label'] ?? '').toString().toLowerCase();
-          return al.compareTo(bl);
-        });
+    _typesSub = _typeCol
+        .orderBy('order', descending: false)
+        .snapshots()
+        .listen(
+          (s) {
+            final docs = s.docs.toList();
+            docs.sort((a, b) {
+              final ma = a.data();
+              final mb = b.data();
+              final ao = (ma['order'] is int) ? ma['order'] as int : 999999;
+              final bo = (mb['order'] is int) ? mb['order'] as int : 999999;
+              if (ao != bo) return ao.compareTo(bo);
+              final al = (ma['label'] ?? '').toString().toLowerCase();
+              final bl = (mb['label'] ?? '').toString().toLowerCase();
+              return al.compareTo(bl);
+            });
 
-        final list = <_CareType>[
-          for (final d in docs)
-            _CareType(
-              (d['key'] ?? '').toString(),
-              (d['label'] ?? '').toString(),
-              (d['icon'] ?? 'restaurant_outlined').toString(),
-              (d['color'] ?? 0xFFB00020) as int,
-            ),
-        ];
-        if (mounted) {
-          setState(() {
-            _types = list;
-            _loadingTypes = false;
-            _selectedTypeKeys.removeWhere((k) => !_types.any((t) => t.key == k));
-          });
-        }
-      },
-      onError: (_) {
-        if (mounted) setState(() => _loadingTypes = false);
-      },
-    );
+            final list = <_CareType>[
+              for (final d in docs)
+                _CareType(
+                  (d['key'] ?? '').toString(),
+                  (d['label'] ?? '').toString(),
+                  (d['icon'] ?? 'restaurant_outlined').toString(),
+                  (d['color'] ?? 0xFFB00020) as int,
+                ),
+            ];
+            if (mounted) {
+              setState(() {
+                _types = list;
+                _loadingTypes = false;
+                _selectedTypeKeys.removeWhere(
+                  (k) => !_types.any((t) => t.key == k),
+                );
+              });
+            }
+          },
+          onError: (_) {
+            if (mounted) setState(() => _loadingTypes = false);
+          },
+        );
   }
 
   // ───── Time helpers ─────
@@ -292,7 +298,9 @@ class _CareLogScreenState extends State<CareLogScreen> {
               const SizedBox(height: 8),
               TextField(
                 controller: _noteCtl,
-                decoration: const InputDecoration(labelText: 'โน้ต (ไม่บังคับ)'),
+                decoration: const InputDecoration(
+                  labelText: 'โน้ต (ไม่บังคับ)',
+                ),
               ),
             ],
           ),
@@ -365,7 +373,9 @@ class _CareLogScreenState extends State<CareLogScreen> {
     List<_CareType> availableTypes,
   ) {
     final items = availableTypes
-        .where((t) => byType.containsKey(t.key) || _selectedTypeKeys.contains(t.key))
+        .where(
+          (t) => byType.containsKey(t.key) || _selectedTypeKeys.contains(t.key),
+        )
         .toList();
 
     return SingleChildScrollView(
@@ -468,8 +478,8 @@ class _CareLogScreenState extends State<CareLogScreen> {
         .where('patientId', isEqualTo: widget.patientId)
         .limit(50);
 
-    final legacyStream =
-        (_noIndexFallback ? qLegacyFallback : qLegacyNormal).snapshots();
+    final legacyStream = (_noIndexFallback ? qLegacyFallback : qLegacyNormal)
+        .snapshots();
 
     return Scaffold(
       backgroundColor: const Color.fromARGB(255, 203, 203, 203),
@@ -487,7 +497,8 @@ class _CareLogScreenState extends State<CareLogScreen> {
             tooltip: 'ตั้งค่าชนิดกิจวัตร',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => CareTypesSettingsScreen(patientId: widget.patientId),
+                builder: (_) =>
+                    CareTypesSettingsScreen(patientId: widget.patientId),
               ),
             ),
             icon: const Icon(Icons.tune),
@@ -519,7 +530,10 @@ class _CareLogScreenState extends State<CareLogScreen> {
                       TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                     ),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+                    visualDensity: const VisualDensity(
+                      horizontal: -2,
+                      vertical: -2,
+                    ),
                     minimumSize: const MaterialStatePropertyAll(Size(0, 0)),
                   ),
                 ),
@@ -529,8 +543,14 @@ class _CareLogScreenState extends State<CareLogScreen> {
                   icon: const Icon(Icons.today_outlined),
                   label: const Text('วันนี้'),
                   style: OutlinedButton.styleFrom(
-                    visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    visualDensity: const VisualDensity(
+                      horizontal: -2,
+                      vertical: -2,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
                   ),
                 ),
               ],
@@ -548,66 +568,76 @@ class _CareLogScreenState extends State<CareLogScreen> {
       body: _loadingTypes
           ? const Center(child: CircularProgressIndicator())
           : (_types.isEmpty
-              ? _emptyTypesPlaceholder()
-              : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: qNew.snapshots(),
-                  builder: (_, newSnap) {
-                    if (newSnap.hasError) {
-                      return _IndexErrorCard(
-                        message: newSnap.error.toString(),
-                        indexUrl: _extractIndexUrl(newSnap.error.toString()),
-                        onUseFallback: () {},
-                      );
-                    }
-                    if (!newSnap.hasData) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
+                ? _emptyTypesPlaceholder()
+                : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: qNew.snapshots(),
+                    builder: (_, newSnap) {
+                      if (newSnap.hasError) {
+                        return _IndexErrorCard(
+                          message: newSnap.error.toString(),
+                          indexUrl: _extractIndexUrl(newSnap.error.toString()),
+                          onUseFallback: () {},
+                        );
+                      }
+                      if (!newSnap.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
 
-                    final newDocs = newSnap.data!.docs;
+                      final newDocs = newSnap.data!.docs;
 
-                    if (!_enableLegacyRead) {
-                      return _buildMainList(newDocs);
-                    }
+                      if (!_enableLegacyRead) {
+                        return _buildMainList(newDocs);
+                      }
 
-                    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: legacyStream,
-                      builder: (_, oldSnap) {
-                        if (oldSnap.hasError) {
-                          if (newDocs.isNotEmpty) {
-                            return _buildMainList(newDocs);
+                      return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                        stream: legacyStream,
+                        builder: (_, oldSnap) {
+                          if (oldSnap.hasError) {
+                            if (newDocs.isNotEmpty) {
+                              return _buildMainList(newDocs);
+                            }
+                            final msg = oldSnap.error.toString();
+                            final link = _extractIndexUrl(msg);
+                            return _IndexErrorCard(
+                              message: msg,
+                              indexUrl: link,
+                              onUseFallback: () => setState(() {
+                                _noIndexFallback = true;
+                              }),
+                            );
                           }
-                          final msg = oldSnap.error.toString();
-                          final link = _extractIndexUrl(msg);
-                          return _IndexErrorCard(
-                            message: msg,
-                            indexUrl: link,
-                            onUseFallback: () => setState(() {
-                              _noIndexFallback = true;
-                            }),
+
+                          if (!oldSnap.hasData) {
+                            if (newDocs.isNotEmpty)
+                              return _buildMainList(newDocs);
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+
+                          final merged = _mergeAndSort(
+                            newDocs,
+                            oldSnap.data!.docs,
                           );
-                        }
-
-                        if (!oldSnap.hasData) {
-                          if (newDocs.isNotEmpty) return _buildMainList(newDocs);
-                          return const Center(child: CircularProgressIndicator());
-                        }
-
-                        final merged = _mergeAndSort(newDocs, oldSnap.data!.docs);
-                        return _buildMainList(merged);
-                      },
-                    );
-                  },
-                )),
+                          return _buildMainList(merged);
+                        },
+                      );
+                    },
+                  )),
     );
   }
 
-  Widget _buildMainList(List<QueryDocumentSnapshot<Map<String, dynamic>>> docsAll) {
+  Widget _buildMainList(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docsAll,
+  ) {
     final byTypeAll = ReportUtils.aggregateByType(docsAll);
 
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs = docsAll;
     if (_selectedTypeKeys.isNotEmpty) {
       docs = docsAll
-          .where((d) => _selectedTypeKeys.contains((d['type'] ?? '').toString()))
+          .where(
+            (d) => _selectedTypeKeys.contains((d['type'] ?? '').toString()),
+          )
           .toList();
     }
 
@@ -676,7 +706,10 @@ class _CareLogScreenState extends State<CareLogScreen> {
                     : '-';
 
                 return ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 6,
+                  ),
                   leading: Container(
                     height: 46,
                     width: 46,
@@ -689,7 +722,9 @@ class _CareLogScreenState extends State<CareLogScreen> {
                     ),
                   ),
                   title: Text(_typeLabel((m['type'] ?? '').toString())),
-                  subtitle: Text('$date  $time\n${(m['note'] ?? '').toString()}'),
+                  subtitle: Text(
+                    '$date  $time\n${(m['note'] ?? '').toString()}',
+                  ),
                   isThreeLine: (m['note'] ?? '').toString().trim().isNotEmpty,
                   trailing: IconButton(
                     icon: const Icon(Icons.more_vert),
@@ -737,8 +772,11 @@ class _CareLogScreenState extends State<CareLogScreen> {
 
                   if (_selectedTypeKeys.isNotEmpty) {
                     list = list
-                        .where((d) => _selectedTypeKeys
-                            .contains((d['type'] ?? '').toString()))
+                        .where(
+                          (d) => _selectedTypeKeys.contains(
+                            (d['type'] ?? '').toString(),
+                          ),
+                        )
                         .toList();
                   }
 
@@ -794,7 +832,9 @@ class _CareLogScreenState extends State<CareLogScreen> {
                       ),
                       ElevatedButton(
                         onPressed: () async {
-                          await d.reference.update({'note': _noteCtl.text.trim()});
+                          await d.reference.update({
+                            'note': _noteCtl.text.trim(),
+                          });
                           if (mounted) Navigator.pop(context);
                         },
                         child: const Text('บันทึก'),
@@ -861,6 +901,7 @@ class _TopSummaryCard extends StatelessWidget {
   final double progress;
   final Widget? chip;
   final VoidCallback? onMore;
+
   const _TopSummaryCard({
     required this.title,
     required this.subtitle,
@@ -873,7 +914,10 @@ class _TopSummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 120,
+      constraints: const BoxConstraints(
+        minHeight: 120,
+      ), // ✅ ไม่ fix ความสูงแล้ว
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         gradient: const LinearGradient(
@@ -889,79 +933,81 @@ class _TopSummaryCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 72,
-              height: 72,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  CircularProgressIndicator(
-                    value: progress,
-                    strokeWidth: 10,
-                    backgroundColor: Colors.white.withOpacity(.25),
-                    valueColor: const AlwaysStoppedAnimation(Colors.white),
-                  ),
-                  Center(
-                    child: Text(
-                      '${(progress * 100).round()}%',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 72,
+            height: 72,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                CircularProgressIndicator(
+                  value: progress,
+                  strokeWidth: 10,
+                  backgroundColor: Colors.white.withOpacity(.25),
+                  valueColor: const AlwaysStoppedAnimation(Colors.white),
+                ),
+                Center(
+                  child: Text(
+                    '${(progress * 100).round()}%',
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w800,
-                      fontSize: 16,
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(.9),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  Text(
-                    valueText,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  if (chip != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: chip,
-                    ),
-                ],
-              ),
+                ),
+              ],
             ),
-            IconButton(
-              onPressed: onMore,
-              color: Colors.white,
-              icon: const Icon(Icons.more_horiz),
+          ),
+          const SizedBox(width: 14),
+
+          /// ✅ Expanded กันล้นแนวนอน
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min, // ✅ สำคัญมาก
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(.9),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  valueText,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                if (chip != null) ...[const SizedBox(height: 6), chip!],
+              ],
             ),
-          ],
-        ),
+          ),
+
+          IconButton(
+            onPressed: onMore,
+            color: Colors.white,
+            icon: const Icon(Icons.more_horiz),
+          ),
+        ],
       ),
     );
   }
@@ -1022,7 +1068,10 @@ class _IndexErrorCard extends StatelessWidget {
             ),
             if (indexUrl != null) ...[
               const SizedBox(height: 8),
-              SelectableText(indexUrl!, style: const TextStyle(color: Colors.blue)),
+              SelectableText(
+                indexUrl!,
+                style: const TextStyle(color: Colors.blue),
+              ),
             ],
             const SizedBox(height: 12),
             FilledButton(
@@ -1041,7 +1090,11 @@ class ListToCsv {
   String encode(List<List<String>> rows) =>
       rows.map((r) => r.map(_esc).join(',')).join('\n');
   String _esc(String v) {
-    final need = v.contains(',') || v.contains('"') || v.contains('\n') || v.contains('\r');
+    final need =
+        v.contains(',') ||
+        v.contains('"') ||
+        v.contains('\n') ||
+        v.contains('\r');
     if (!need) return v;
     final w = v.replaceAll('"', '""');
     return '"$w"';

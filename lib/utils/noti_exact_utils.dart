@@ -1,96 +1,62 @@
-import 'dart:isolate';
-import 'dart:ui';
-
-import 'package:flutter_local_notifications/flutter_local_notifications.dart' as fln;
-import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
-import 'package:timezone/data/latest.dart' as tzdata;
-
-const _kBgPortName = 'noti_exact_bg_port';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 
 class NotiUtils {
-  static final fln.FlutterLocalNotificationsPlugin _plugin =
-      fln.FlutterLocalNotificationsPlugin();
+  static final FlutterLocalNotificationsPlugin _plugin =
+      FlutterLocalNotificationsPlugin();
 
-  static bool _inited = false;
+  static bool _initialized = false;
 
+  /// -------------------------
+  /// INIT
+  /// -------------------------
   static Future<void> init() async {
-    if (_inited) return;
+    if (_initialized) return;
 
-    tzdata.initializeTimeZones();
+    tz.initializeTimeZones();
 
-    const androidInit = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
-    const init = fln.InitializationSettings(android: androidInit);
-    await _plugin.initialize(init);
+    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    const settings = InitializationSettings(android: androidInit);
+
+    await _plugin.initialize(settings);
 
     final androidImpl = _plugin
-        .resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+
     await androidImpl?.requestNotificationsPermission();
 
-    IsolateNameServer.removePortNameMapping(_kBgPortName);
-    IsolateNameServer.registerPortWithName(ReceivePort().sendPort, _kBgPortName);
-
-    _inited = true;
+    _initialized = true;
   }
 
-  static DateTime _nextOccurrence(int hour, int minute) {
-    final now = DateTime.now();
-    var when = DateTime(now.year, now.month, now.day, hour, minute);
-    if (!when.isAfter(now)) when = when.add(const Duration(days: 1));
-    return when;
-  }
+  /// -------------------------
+  /// NEXT TIME
+  /// -------------------------
+  static tz.TZDateTime _nextInstance(int hour, int minute) {
+    final now = tz.TZDateTime.now(tz.local);
 
-  @pragma('vm:entry-point')
-  static Future<void> _alarmCallback(
-    int id,
-    String title,
-    String body,
-    int hour,
-    int minute,
-  ) async {
-    final local = fln.FlutterLocalNotificationsPlugin();
-    const android = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
-    const init = fln.InitializationSettings(android: android);
-    await local.initialize(init);
-
-    const details = fln.NotificationDetails(
-      android: fln.AndroidNotificationDetails(
-        'care_channel',
-        'การแจ้งเตือนกิจวัตร',
-        importance: fln.Importance.max,
-        priority: fln.Priority.high,
-        playSound: true,
-      ),
+    var scheduled = tz.TZDateTime(
+      tz.local,
+      now.year,
+      now.month,
+      now.day,
+      hour,
+      minute,
     );
 
-    await local.show(id, title, body, details);
+    if (scheduled.isBefore(now)) {
+      scheduled = scheduled.add(const Duration(days: 1));
+    }
 
-    final next = _nextOccurrence(hour, minute);
-    await AndroidAlarmManager.oneShotAt(
-      next,
-      id,
-      _alarmEntry,
-      exact: true,
-      wakeup: true,
-      rescheduleOnReboot: true,
-      params: <String, dynamic>{
-        'id': id,
-        'title': title,
-        'body': body,
-        'hour': hour,
-        'minute': minute,
-      },
-    );
+    return scheduled;
   }
 
-  @pragma('vm:entry-point')
-  static void _alarmEntry(int id, Map<String, dynamic> params) {
-    final title = params['title'] as String? ?? '';
-    final body = params['body'] as String? ?? '';
-    final hour = params['hour'] as int? ?? 8;
-    final minute = params['minute'] as int? ?? 0;
-    _alarmCallback(id, title, body, hour, minute);
-  }
-
+  /// -------------------------
+  /// DAILY SCHEDULE
+  /// -------------------------
   static Future<int> scheduleDaily({
     required int id,
     required String title,
@@ -99,32 +65,40 @@ class NotiUtils {
     required int minute,
   }) async {
     await init();
-    final first = _nextOccurrence(hour, minute);
-    await AndroidAlarmManager.oneShotAt(
-      first,
-      id,
-      _alarmEntry,
-      exact: true,
-      wakeup: true,
-      rescheduleOnReboot: true,
-      params: <String, dynamic>{
-        'id': id,
-        'title': title,
-        'body': body,
-        'hour': hour,
-        'minute': minute,
-      },
+
+    const androidDetails = AndroidNotificationDetails(
+      'care_channel',
+      'การแจ้งเตือนกิจวัตร',
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound: true,
     );
+
+    const details = NotificationDetails(android: androidDetails);
+
+    await _plugin.zonedSchedule(
+      id,
+      title,
+      body,
+      _nextInstance(hour, minute),
+      details,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      matchDateTimeComponents: DateTimeComponents.time,
+    );
+
     return id;
   }
 
+  /// -------------------------
+  /// CANCEL
+  /// -------------------------
   static Future<void> cancel(int id) async {
     await init();
-    await AndroidAlarmManager.cancel(id);
+    await _plugin.cancel(id);
   }
 
   static Future<void> cancelAll() async {
     await init();
-    await _plugin.cancelAll(); // ล้างเฉพาะ noti ที่ตั้งไว้แล้ว
+    await _plugin.cancelAll();
   }
 }

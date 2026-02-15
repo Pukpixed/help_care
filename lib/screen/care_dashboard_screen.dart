@@ -527,7 +527,7 @@ class _CareDashboardScreenState extends State<CareDashboardScreen> {
             crossAxisCount: 2,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
-            childAspectRatio: 2.6,
+            childAspectRatio: 1.8,
           ),
           itemBuilder: (_, i) {
             final e = byGroup.entries.where((e) => e.value > 0).toList()[i];

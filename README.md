@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-# help_care
-=======
-# helpcare
->>>>>>> c3bd551 (Initial commit: help_care app)
+# helpcare_new
 
 A new Flutter project.
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+import 'dart:typed_data';
 
 typedef LocalNotifTap = void Function(Map<String, String> data);
 
@@ -14,85 +15,129 @@ class LocalNotifService {
 
   LocalNotifTap? _onTap;
 
-  /// ✅ init + handle tap (payload -> Map)
+  /// ================= INIT =================
   Future<void> init({LocalNotifTap? onTap}) async {
     _onTap = onTap;
 
+    // ✅ Timezone setup
     tz.initializeTimeZones();
+    tz.setLocalLocation(tz.getLocation('Asia/Bangkok'));
 
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const initSettings = InitializationSettings(android: android);
+    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    const initSettings = InitializationSettings(android: androidInit);
 
     await _plugin.initialize(
       initSettings,
-      onDidReceiveNotificationResponse: (NotificationResponse resp) {
-        final payload = resp.payload;
-        if (payload == null || payload.isEmpty) return;
-        _onTap?.call(_parsePayload(payload));
-      },
+      onDidReceiveNotificationResponse: _onNotificationResponse,
     );
+
+    await _createChannel();
+    await _requestPermission();
   }
 
-  /// ✅ Android 13+ ขอสิทธิ์แจ้งเตือน
-  Future<void> requestAndroid13PermissionIfNeeded() async {
-    final androidImpl = _plugin
+  /// ================= HANDLE TAP =================
+  void _onNotificationResponse(NotificationResponse response) {
+    if (response.actionId == 'TAKEN') return;
+
+    final payload = response.payload;
+    if (payload == null || payload.isEmpty) return;
+
+    _onTap?.call(_decodePayload(payload));
+  }
+
+  /// ================= PERMISSION =================
+  Future<void> _requestPermission() async {
+    final android = _plugin
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
         >();
-    await androidImpl?.requestNotificationsPermission();
+
+    await android?.requestNotificationsPermission();
   }
 
-  /// ✅ แปลง Map -> payload string
+  /// ================= CHANNEL =================
+  Future<void> _createChannel() async {
+    const channel = AndroidNotificationChannel(
+      'med_reminder_channel',
+      'Medication Reminders',
+      description: 'แจ้งเตือนการให้ยา (สำคัญมาก)',
+      importance: Importance.max,
+      playSound: true,
+      enableVibration: true,
+    );
+
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+
+    await android?.createNotificationChannel(channel);
+  }
+
+  /// ================= PAYLOAD =================
   String encodePayload(Map<String, String> data) =>
       data.entries.map((e) => '${e.key}=${e.value}').join('&');
 
-  /// ✅ แปลง payload string -> Map
-  Map<String, String> _parsePayload(String payload) {
+  Map<String, String> _decodePayload(String payload) {
     final map = <String, String>{};
+
     for (final p in payload.split('&')) {
       final idx = p.indexOf('=');
       if (idx <= 0) continue;
       map[p.substring(0, idx)] = p.substring(idx + 1);
     }
+
     return map;
   }
 
-  /// ✅ สร้าง notificationId แบบคงที่จาก docId + time เพื่อ cancel/replace ได้
-  int buildNotifId(String docId, String hhmm) {
-    final s = '$docId|$hhmm';
-    var hash = 0;
-    for (final code in s.codeUnits) {
-      hash = (hash * 31 + code) & 0x7fffffff;
-    }
-    return 100000 + (hash % 800000);
+  /// ================= BUILD ID =================
+  int buildNotifId(String docId, TimeOfDay time) {
+    final base = docId.hashCode;
+    final timePart = time.hour * 100 + time.minute;
+    return (base + timePart).abs();
   }
 
-  /// ✅ เด้งแจ้งเตือนทันที (ใช้ใน AppNotifyService)
+  /// ================= SHOW NOW =================
   Future<void> show({
     required String title,
     required String body,
     Map<String, String>? payloadData,
   }) async {
-    const android = AndroidNotificationDetails(
-      'high_importance_channel',
-      'High Importance Notifications',
-      channelDescription: 'General notifications',
+    final id = DateTime.now().millisecondsSinceEpoch.remainder(100000);
+
+    const androidDetails = AndroidNotificationDetails(
+      'med_reminder_channel',
+      'Medication Reminders',
+      channelDescription: 'แจ้งเตือนการให้ยา (สำคัญมาก)',
       importance: Importance.max,
       priority: Priority.high,
+      category: AndroidNotificationCategory.alarm,
+      fullScreenIntent: true,
+      visibility: NotificationVisibility.public,
+      playSound: true,
+      enableVibration: true,
+      ongoing: true,
+      autoCancel: false,
+      actions: [
+        AndroidNotificationAction(
+          'TAKEN',
+          '💊 กินยาแล้ว',
+          cancelNotification: true,
+        ),
+      ],
     );
-
-    final id = DateTime.now().millisecondsSinceEpoch.remainder(100000);
 
     await _plugin.show(
       id,
       title,
       body,
-      const NotificationDetails(android: android),
+      const NotificationDetails(android: androidDetails),
       payload: payloadData == null ? null : encodePayload(payloadData),
     );
   }
 
-  /// ✅ Schedule แจ้งเตือน “ทุกวัน” ตามเวลาเดียว (ซ้ำรายวัน)
+  /// ================= DAILY SCHEDULE =================
   Future<void> scheduleDailyAt({
     required int id,
     required String title,
@@ -115,12 +160,27 @@ class LocalNotifService {
       scheduled = scheduled.add(const Duration(days: 1));
     }
 
-    const android = AndroidNotificationDetails(
+    final androidDetails = AndroidNotificationDetails(
       'med_reminder_channel',
       'Medication Reminders',
-      channelDescription: 'Reminders for medication schedule',
+      channelDescription: 'แจ้งเตือนการให้ยา (สำคัญมาก)',
       importance: Importance.max,
       priority: Priority.high,
+      category: AndroidNotificationCategory.alarm,
+      fullScreenIntent: true,
+      visibility: NotificationVisibility.public,
+      playSound: true,
+      enableVibration: true,
+      vibrationPattern: Int64List.fromList([0, 1000, 500, 1000]),
+      ongoing: true,
+      autoCancel: false,
+      actions: [
+        AndroidNotificationAction(
+          'TAKEN',
+          '💊 กินยาแล้ว',
+          cancelNotification: true,
+        ),
+      ],
     );
 
     await _plugin.zonedSchedule(
@@ -128,19 +188,19 @@ class LocalNotifService {
       title,
       body,
       scheduled,
-      const NotificationDetails(android: android),
+      NotificationDetails(android: androidDetails),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      matchDateTimeComponents:
-          DateTimeComponents.time, // ✅ ซ้ำทุกวันตามเวลาเดิม
+      matchDateTimeComponents: DateTimeComponents.time,
       payload: payloadData == null ? null : encodePayload(payloadData),
     );
   }
 
-  Future<void> cancel(int id) => _plugin.cancel(id);
+  /// ================= CANCEL =================
+  Future<void> cancel(int id) async {
+    await _plugin.cancel(id);
+  }
 
-  Future<void> cancelMany(List<int> ids) async {
-    for (final id in ids) {
-      await _plugin.cancel(id);
-    }
+  Future<void> cancelAll() async {
+    await _plugin.cancelAll();
   }
 }

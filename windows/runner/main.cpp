@@ -27,11 +27,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
-<<<<<<< HEAD
-  if (!window.Create(L"help_care", origin, size)) {
-=======
-  if (!window.Create(L"helpcare", origin, size)) {
->>>>>>> c3bd551 (Initial commit: help_care app)
+  if (!window.Create(L"helpcare_new", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

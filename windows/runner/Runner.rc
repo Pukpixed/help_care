@@ -90,21 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.example" "\0"
-<<<<<<< HEAD
-            VALUE "FileDescription", "help_care" "\0"
+            VALUE "FileDescription", "helpcare_new" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "help_care" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2025 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "help_care.exe" "\0"
-            VALUE "ProductName", "help_care" "\0"
-=======
-            VALUE "FileDescription", "helpcare" "\0"
-            VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "helpcare" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2025 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "helpcare.exe" "\0"
-            VALUE "ProductName", "helpcare" "\0"
->>>>>>> c3bd551 (Initial commit: help_care app)
+            VALUE "InternalName", "helpcare_new" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
+            VALUE "OriginalFilename", "helpcare_new.exe" "\0"
+            VALUE "ProductName", "helpcare_new" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

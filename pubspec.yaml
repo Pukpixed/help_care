@@ -16,7 +16,7 @@ dependencies:
   fluttertoast: ^9.0.0
 
   carousel_slider: ^5.0.0
-  google_fonts: ^7.0.2
+  google_fonts: ^8.0.1
 
   firebase_core: ^4.3.0
   firebase_auth: ^6.1.3
@@ -31,9 +31,8 @@ dependencies:
   pdf: ^3.11.0
 
   # ✅ local notifications + timezone (ใช้เวอร์ชันเดียว)
-  flutter_local_notifications: ^19.5.0
-  timezone: ^0.10.1
-  android_alarm_manager_plus: ^5.0.0
+  flutter_local_notifications: ^19.0.0
+  timezone: ^0.10.0
 
   fl_chart: ^1.1.1
   audioplayers: ^6.5.1
@@ -63,10 +62,10 @@ flutter_launcher_icons:
   android: true
   ios: true
   remove_alpha_ios: true
-  image_path: "assets/icon/logohelpcare.png"
+  image_path: "assets/icon/helpcare-OA.png"
   min_sdk_android: 28
   adaptive_icon_background: "#FFFFFF"
-  adaptive_icon_foreground: "assets/icon/logohelpcare.png"
+  adaptive_icon_foreground: "assets/icon/helpcare-OA.png"
 
 flutter:
   uses-material-design: true

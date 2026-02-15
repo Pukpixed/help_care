@@ -1,18 +1,10 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
-<<<<<<< HEAD
-project(help_care LANGUAGES CXX)
+project(helpcare_new LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "help_care")
-=======
-project(helpcare LANGUAGES CXX)
-
-# The name of the executable created for the application. Change this to change
-# the on-disk name of your application.
-set(BINARY_NAME "helpcare")
->>>>>>> c3bd551 (Initial commit: help_care app)
+set(BINARY_NAME "helpcare_new")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
