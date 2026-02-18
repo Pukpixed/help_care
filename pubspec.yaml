@@ -1,4 +1,4 @@
-name: help_care
+name: helpcare
 description: "A new Flutter project."
 publish_to: 'none'
 
@@ -31,11 +31,11 @@ dependencies:
   pdf: ^3.11.0
 
   # ✅ local notifications + timezone (ใช้เวอร์ชันเดียว)
-  flutter_local_notifications: ^19.0.0
+  flutter_local_notifications: ^19.5.0
   timezone: ^0.10.0
 
   fl_chart: ^1.1.1
-  audioplayers: ^6.5.1
+  audioplayers: ^6.1.0
   open_filex: ^4.5.0
   http: ^1.2.0
 
