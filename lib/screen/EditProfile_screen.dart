@@ -11,7 +11,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart' as geo;
 
-import '../color.dart'; // <- ใช้ AppColors ตามที่ให้มา
+import '../color.dart'; // AppColors
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -37,6 +37,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   // ✅ สถานะกำลังดึงตำแหน่ง GPS
   bool _locating = false;
+
+  // ✅ เก็บพิกัด lat/lng (ระบุ GPS)
+  double? _lat;
+  double? _lng;
 
   @override
   void initState() {
@@ -72,6 +76,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _phone.text = (data['phone'] as String?)?.trim() ?? '';
     _address.text = (data['address'] as String?)?.trim() ?? '';
     _remotePhotoUrl = (data['photoUrl'] as String?) ?? user.photoURL;
+
+    // ✅ โหลดพิกัดเดิม (ถ้ามี)
+    final latVal = data['lat'];
+    final lngVal = data['lng'];
+    if (latVal is num) _lat = latVal.toDouble();
+    if (lngVal is num) _lng = lngVal.toDouble();
 
     if (mounted) setState(() {});
   }
@@ -111,7 +121,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   String? _phoneValidator(String? v) {
     final t = (v ?? '').trim();
     if (t.isEmpty) return 'กรุณากรอกเบอร์โทร';
-    // อนุญาต 8–15 หลัก (ไทยนิยม 10 หลัก)
     final ok = RegExp(r'^\d{8,15}$').hasMatch(t);
     if (!ok) return 'กรุณากรอกเฉพาะตัวเลข 8–15 หลัก';
     return null;
@@ -173,13 +182,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     bool serviceEnabled;
     LocationPermission permission;
 
-    // เช็คว่าเปิด Location service หรือยัง
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       throw 'กรุณาเปิด Location (GPS) ในเครื่องก่อน';
     }
 
-    // เช็คสิทธิ์
     permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -202,24 +209,49 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     try {
       final pos = await _determinePosition();
 
-      // แปลง lat / lng -> ที่อยู่
-      final placemarks = await geo.placemarkFromCoordinates(
-        pos.latitude,
-        pos.longitude,
-      );
+      // ✅ เก็บพิกัดแน่นอน
+      _lat = pos.latitude;
+      _lng = pos.longitude;
 
-      if (placemarks.isNotEmpty) {
-        final geo.Placemark p = placemarks.first;
+      String addr = '';
 
-        final addr = <String?>[
-          p.name,
-          p.subLocality,
-          p.locality,
-          p.administrativeArea,
-          p.postalCode,
-        ].whereType<String>().where((e) => e.trim().isNotEmpty).join(' ');
+      // แปลง lat/lng -> ที่อยู่ (อาจ fail ได้)
+      try {
+        final placemarks = await geo.placemarkFromCoordinates(
+          pos.latitude,
+          pos.longitude,
+        );
 
-        _address.text = addr;
+        if (placemarks.isNotEmpty) {
+          final geo.Placemark p = placemarks.first;
+          addr = <String?>[
+            p.name,
+            p.subLocality,
+            p.locality,
+            p.administrativeArea,
+            p.postalCode,
+          ].whereType<String>().where((e) => e.trim().isNotEmpty).join(' ');
+        }
+      } catch (_) {
+        // ถ้าแปลงที่อยู่ไม่ได้ เดี๋ยว fallback ไปพิกัด
+      }
+
+      // ✅ ถ้าไม่เจอที่อยู่ ให้ใส่พิกัดแทน (ระบุ GPS ได้แน่นอน)
+      if (addr.trim().isEmpty) {
+        addr =
+            "พิกัด: ${pos.latitude.toStringAsFixed(6)}, ${pos.longitude.toStringAsFixed(6)}";
+      }
+
+      _address.text = addr;
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'ได้พิกัดแล้ว: ${pos.latitude.toStringAsFixed(6)}, ${pos.longitude.toStringAsFixed(6)}',
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (!mounted) return;
@@ -227,9 +259,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
-      if (mounted) {
-        setState(() => _locating = false);
-      }
+      if (mounted) setState(() => _locating = false);
     }
   }
 
@@ -268,6 +298,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         'age': age,
         'phone': phone,
         'address': address,
+
+        // ✅ บันทึกพิกัด GPS
+        'lat': _lat,
+        'lng': _lng,
+        if (_lat != null && _lng != null) 'gps': GeoPoint(_lat!, _lng!),
+
         if (photoUrl != null) 'photoUrl': photoUrl,
         if (avatarPath != null) 'avatarPath': avatarPath,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -337,7 +373,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 child: Column(
                   children: [
-                    // Header + Avatar card
                     Card(
                       color: Colors.white.withOpacity(0.96),
                       elevation: 10,
@@ -350,7 +385,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            // Chip หัวข้อ
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 12,
@@ -382,7 +416,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             ),
                             const SizedBox(height: 18),
 
-                            // Avatar วงกลมเนียน ๆ
                             GestureDetector(
                               onTap: _pick,
                               child: Stack(
@@ -432,7 +465,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                       ),
                                     ),
                                   ),
-                                  // ปุ่มกล้องเล็ก
                                   Container(
                                     padding: const EdgeInsets.all(6),
                                     decoration: BoxDecoration(
@@ -465,13 +497,25 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 color: Colors.black54,
                               ),
                             ),
+
+                            // ✅ แสดงพิกัดที่ดึงได้ (ถ้ามี) — ช่วยเช็คว่าระบุ GPS สำเร็จ
+                            if (_lat != null && _lng != null) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                'พิกัด: ${_lat!.toStringAsFixed(6)}, ${_lng!.toStringAsFixed(6)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.black.withOpacity(0.6),
+                                ),
+                              ),
+                            ],
+
                             const SizedBox(height: 20),
 
                             Form(
                               key: _formKey,
                               child: Column(
                                 children: [
-                                  // ชื่อ
                                   TextFormField(
                                     controller: _name,
                                     decoration: _dec(
@@ -484,7 +528,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                   ),
                                   const SizedBox(height: 14),
 
-                                  // อายุ
                                   TextFormField(
                                     controller: _age,
                                     decoration: _dec(
@@ -501,7 +544,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                   ),
                                   const SizedBox(height: 14),
 
-                                  // เบอร์โทร
                                   TextFormField(
                                     controller: _phone,
                                     decoration: _dec(
@@ -522,7 +564,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                   ),
                                   const SizedBox(height: 14),
 
-                                  // ที่อยู่ (เลือกจาก GPS)
                                   TextFormField(
                                     controller: _address,
                                     readOnly: true,
@@ -567,7 +608,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
                     const SizedBox(height: 18),
 
-                    // ปุ่มบันทึกแยกด้านล่าง ใหญ่ ๆ เต็มความกว้าง
                     SizedBox(
                       width: double.infinity,
                       height: 52,
