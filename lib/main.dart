@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 
@@ -13,38 +15,59 @@ final GlobalKey<NavigatorState> navKey = GlobalKey<NavigatorState>();
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  /// ✅ ซ่อน Error overlay / Red screen
-  ErrorWidget.builder = (details) => const SizedBox.shrink();
+  // ✅ ซ่อน error เฉพาะตอน release (ตอน debug ต้องเห็น error)
+  if (kReleaseMode) {
+    ErrorWidget.builder = (details) => const SizedBox.shrink();
+  }
 
-  /// ✅ Firebase
+  // ✅ Firebase (จำเป็นก่อนใช้ messaging/firestore)
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  /// 🔔 Local Notification
-  await LocalNotifService.instance.init(onTap: _handleLocalNotificationTap);
-
-  /// 🔔 Push (FCM)
-  await PushService.instance.init();
-  await PushService.instance.saveTokenForCurrentUser();
-
+  // ✅ แสดง UI ก่อน (กันค้างสแปลช)
   runApp(const MyApp());
+
+  // ✅ ค่อย init services หลังวาดเฟรมแรก
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    _initServices();
+  });
+}
+
+Future<void> _initServices() async {
+  try {
+    // 🔔 Local Notification
+    await LocalNotifService.instance.ensureInit(
+      onTap: _handleLocalNotificationTap,
+    );
+
+    // 🔔 Push (FCM)
+    await PushService.instance.init();
+
+    // ✅ token ควรทำหลัง login แต่เรียกไว้ก็ไม่พัง (ถ้าไม่มี user มัน return)
+    await PushService.instance.saveTokenForCurrentUser();
+  } catch (e, st) {
+    // ✅ อย่าปล่อยเงียบตอน debug จะได้รู้ว่าค้างเพราะอะไร
+    debugPrint('Init services failed: $e');
+    debugPrint('$st');
+  }
 }
 
 /// =======================================================
 /// 🔔 Local Notification Tap Handler
 /// =======================================================
 void _handleLocalNotificationTap(Map<String, String> data) {
-  final collection = data['collection'] ?? '';
+  // รองรับทั้ง key แบบเก่า (collection) และแบบใหม่ (type)
+  final collection = (data['collection'] ?? '').trim();
+  final type = (data['type'] ?? '').trim();
 
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    final state = navKey.currentState;
-    if (state == null) return;
+  final state = navKey.currentState;
+  if (state == null) return;
 
-    if (collection == 'med_schedules') {
-      state.pushNamed(AppRoutes.dailyCare);
-    } else {
-      state.pushNamed(AppRoutes.notifications);
-    }
-  });
+  // ไม่ต้อง addPostFrameCallback ซ้อนก็ได้ เพราะตอน tap app เปิดอยู่แล้ว
+  if (collection == 'med_schedules' || type == 'med_schedule') {
+    state.pushNamed(AppRoutes.dailyCare);
+  } else {
+    state.pushNamed(AppRoutes.notifications);
+  }
 }
 
 /// =======================================================
@@ -73,54 +96,49 @@ class _MyAppState extends State<MyApp> {
     });
   }
 
-  /// ===================================================
-  /// Route จาก notification data (Push)
-  /// ===================================================
   void _routeFromNotificationData(Map<String, dynamic> data) {
     final type = (data['type'] ?? '').toString();
+    final state = navKey.currentState;
+    if (state == null) return;
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final state = navKey.currentState;
-      if (state == null) return;
+    switch (type) {
+      case 'sos':
+        state.pushNamed(AppRoutes.sos);
+        break;
 
-      switch (type) {
-        case 'sos':
-          state.pushNamed(AppRoutes.sos);
-          break;
-
-        case 'careLog':
-          final patientId = (data['patientId'] ?? '').toString();
-          if (patientId.isEmpty) {
-            state.pushNamed(AppRoutes.home);
-          } else {
-            state.pushNamed(
-              AppRoutes.careLog,
-              arguments: {'patientId': patientId},
-            );
-          }
-          break;
-
-        case 'dailyCare':
-        case 'medSchedule':
-          state.pushNamed(AppRoutes.dailyCare);
-          break;
-
-        case 'notification':
-          final nid = (data['notificationId'] ?? '').toString();
-          if (nid.isNotEmpty) {
-            state.pushNamed(
-              AppRoutes.notificationDetail,
-              arguments: {'notificationId': nid},
-            );
-          } else {
-            state.pushNamed(AppRoutes.notifications);
-          }
-          break;
-
-        default:
+      case 'careLog':
+        final patientId = (data['patientId'] ?? '').toString();
+        if (patientId.isEmpty) {
           state.pushNamed(AppRoutes.home);
-      }
-    });
+        } else {
+          state.pushNamed(
+            AppRoutes.careLog,
+            arguments: {'patientId': patientId},
+          );
+        }
+        break;
+
+      case 'dailyCare':
+      case 'medSchedule':
+      case 'med_schedule':
+        state.pushNamed(AppRoutes.dailyCare);
+        break;
+
+      case 'notification':
+        final nid = (data['notificationId'] ?? '').toString();
+        if (nid.isNotEmpty) {
+          state.pushNamed(
+            AppRoutes.notificationDetail,
+            arguments: {'notificationId': nid},
+          );
+        } else {
+          state.pushNamed(AppRoutes.notifications);
+        }
+        break;
+
+      default:
+        state.pushNamed(AppRoutes.home);
+    }
   }
 
   @override

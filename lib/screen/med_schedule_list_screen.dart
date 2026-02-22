@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../services/local_notif_service.dart';
+
 /// -----------------------------
 /// ✅ Presets (ตัวอย่างยา) + หมวดหมู่
 /// -----------------------------
@@ -216,6 +218,27 @@ class _MedScheduleListScreenState extends State<MedScheduleListScreen> {
 
   String _q = '';
 
+  bool _syncedOnce = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // ✅ init LocalNoti + handle tap
+    LocalNotifService.instance.ensureInit(
+      onTap: (data) async {
+        final docId = (data['docId'] ?? '').trim();
+        if (docId.isEmpty) return;
+
+        try {
+          final snap = await _col.doc(docId).get();
+          if (!mounted) return;
+          if (snap.exists) await _addOrEdit(doc: snap);
+        } catch (_) {}
+      },
+    );
+  }
+
   // ---- utils ----
   String _fmtTime(int h, int m) =>
       '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
@@ -246,6 +269,8 @@ class _MedScheduleListScreenState extends State<MedScheduleListScreen> {
     }
     return const <int>[];
   }
+
+  TimeOfDay _toTime(int h, int m) => TimeOfDay(hour: h, minute: m);
 
   String _dayLabel(int d) {
     switch (d) {
@@ -293,6 +318,112 @@ class _MedScheduleListScreenState extends State<MedScheduleListScreen> {
       default:
         return const Color(0xFFF7F8FD);
     }
+  }
+
+  /// -----------------------------
+  /// ✅ NOTI HELPERS (ผูก noti จริง)
+  /// -----------------------------
+  Future<void> _cancelAllNotiForDocAtTime(String docId, int h, int m) async {
+    final t = _toTime(h, m);
+
+    // daily id
+    final dailyId = LocalNotifService.instance.buildNotifIdKey(docId, 'D', t);
+    await LocalNotifService.instance.cancel(dailyId);
+
+    // weekly ids W1..W7
+    for (int d = 1; d <= 7; d++) {
+      final wid = LocalNotifService.instance.buildNotifIdKey(docId, 'W$d', t);
+      await LocalNotifService.instance.cancel(wid);
+    }
+  }
+
+  Future<void> _applyLocalNotiForDoc({
+    required String docId,
+    required String title,
+    required String dose,
+    required int hour,
+    required int minute,
+    required bool enabled,
+    required List<int> days, // []=ทุกวัน, 1..7=เลือกวัน
+  }) async {
+    // กันซ้ำ: ล้าง noti ชุดเดิมของเวลานี้ก่อน
+    await _cancelAllNotiForDocAtTime(docId, hour, minute);
+    if (!enabled) return;
+
+    final time = _toTime(hour, minute);
+
+    final notiTitle = '⏰ ถึงเวลากินยา';
+    final notiBody = dose.trim().isEmpty
+        ? title
+        : '$title\nขนาดยา: ${dose.trim()}';
+
+    final payloadData = <String, String>{
+      'type': 'med_schedule',
+      'docId': docId,
+    };
+
+    // ✅ ทุกวัน
+    if (days.isEmpty) {
+      final id = LocalNotifService.instance.buildNotifIdKey(docId, 'D', time);
+      await LocalNotifService.instance.scheduleDailyAt(
+        id: id,
+        title: notiTitle,
+        body: notiBody,
+        time: time,
+        payloadData: payloadData,
+      );
+      return;
+    }
+
+    // ✅ เฉพาะวัน (weekly)
+    for (final d in days) {
+      if (d < 1 || d > 7) continue;
+      final id = LocalNotifService.instance.buildNotifIdKey(docId, 'W$d', time);
+      await LocalNotifService.instance.scheduleWeeklyAt(
+        id: id,
+        title: notiTitle,
+        body: notiBody,
+        weekday: d,
+        time: time,
+        payloadData: payloadData,
+      );
+    }
+  }
+
+  Future<void> _syncAllEnabledSchedulesOnce() async {
+    if (_syncedOnce) return;
+    final uid = _uid;
+    if (uid == null) return;
+    _syncedOnce = true;
+
+    try {
+      final q = await _col.where('uid', isEqualTo: uid).limit(500).get();
+      for (final d in q.docs) {
+        final m = d.data();
+        final enabled = _safeBool(m['enabled'], true);
+        final title = _safeStr(m['title']);
+        final dose = _safeStr(m['dose']);
+        final hour = _safeInt(m['hour'], 9);
+        final minute = _safeInt(m['minute'], 0);
+        final days = _safeDays(m['days']);
+
+        if (title.isEmpty) continue;
+
+        if (enabled) {
+          await _applyLocalNotiForDoc(
+            docId: d.id,
+            title: title,
+            dose: dose,
+            hour: hour,
+            minute: minute,
+            enabled: true,
+            days: days,
+          );
+        } else {
+          await _cancelAllNotiForDocAtTime(d.id, hour, minute);
+        }
+      }
+    } catch (_) {}
   }
 
   /// -----------------------------
@@ -476,6 +607,10 @@ class _MedScheduleListScreenState extends State<MedScheduleListScreen> {
 
     final isEdit = doc != null;
     final data = doc?.data() ?? <String, dynamic>{};
+
+    // ✅ เก็บเวลาเดิมไว้สำหรับ cancel ตอนแก้ไข
+    final oldHour = _safeInt(data['hour'], 9);
+    final oldMinute = _safeInt(data['minute'], 0);
 
     final titleCtl = TextEditingController(text: _safeStr(data['title']));
     final doseCtl = TextEditingController(text: _safeStr(data['dose']));
@@ -808,9 +943,41 @@ class _MedScheduleListScreenState extends State<MedScheduleListScreen> {
                                             await doc!.reference.update(
                                               payload,
                                             );
+
+                                            // ✅ cancel ของเดิม (เวลาเดิม)
+                                            await _cancelAllNotiForDocAtTime(
+                                              doc.id,
+                                              oldHour,
+                                              oldMinute,
+                                            );
+
+                                            // ✅ apply ของใหม่
+                                            await _applyLocalNotiForDoc(
+                                              docId: doc.id,
+                                              title: title,
+                                              dose: doseCtl.text.trim(),
+                                              hour: hour,
+                                              minute: minute,
+                                              enabled: enabled,
+                                              days: days,
+                                            );
                                           } else {
-                                            await _col.add(payload);
+                                            final newRef = await _col.add(
+                                              payload,
+                                            );
+
+                                            // ✅ apply ของใหม่ (docId ได้หลัง add)
+                                            await _applyLocalNotiForDoc(
+                                              docId: newRef.id,
+                                              title: title,
+                                              dose: doseCtl.text.trim(),
+                                              hour: hour,
+                                              minute: minute,
+                                              enabled: enabled,
+                                              days: days,
+                                            );
                                           }
+
                                           if (ctx2.mounted) Navigator.pop(ctx2);
                                         } catch (e) {
                                           if (!mounted) return;
@@ -847,13 +1014,33 @@ class _MedScheduleListScreenState extends State<MedScheduleListScreen> {
 
   Future<void> _toggle(
     DocumentSnapshot<Map<String, dynamic>> doc,
-    bool value,
-  ) async {
+    bool value, {
+    required String title,
+    required String dose,
+    required int hour,
+    required int minute,
+    required List<int> days,
+  }) async {
     try {
       await doc.reference.update({
         'enabled': value,
         'updatedAt': FieldValue.serverTimestamp(),
       });
+
+      // ✅ toggle แล้วทำ noti ทันที
+      if (value) {
+        await _applyLocalNotiForDoc(
+          docId: doc.id,
+          title: title,
+          dose: dose,
+          hour: hour,
+          minute: minute,
+          enabled: true,
+          days: days,
+        );
+      } else {
+        await _cancelAllNotiForDocAtTime(doc.id, hour, minute);
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -884,6 +1071,11 @@ class _MedScheduleListScreenState extends State<MedScheduleListScreen> {
 
     if (ok == true) {
       try {
+        // ✅ cancel noti ก่อนลบ
+        final h = _safeInt(doc.data()?['hour'], 9);
+        final m = _safeInt(doc.data()?['minute'], 0);
+        await _cancelAllNotiForDocAtTime(doc.id, h, m);
+
         await doc.reference.delete();
       } catch (e) {
         if (!mounted) return;
@@ -897,6 +1089,13 @@ class _MedScheduleListScreenState extends State<MedScheduleListScreen> {
   @override
   Widget build(BuildContext context) {
     final isNarrow = MediaQuery.of(context).size.width < 360;
+
+    // ✅ sync schedules 1 ครั้งหลังเข้าหน้านี้ (กันเคสติดตั้งใหม่/เปิดเครื่องใหม่)
+    if (!_syncedOnce && _uid != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _syncAllEnabledSchedulesOnce();
+      });
+    }
 
     return Scaffold(
       backgroundColor: _bg,
@@ -981,7 +1180,7 @@ class _MedScheduleListScreenState extends State<MedScheduleListScreen> {
                     message: q.isEmpty
                         ? 'ยังไม่มีตารางการให้ยา'
                         : 'ไม่พบรายการที่ค้นหา',
-                    onAdd: _addOrEdit,
+                    onAdd: () => _addOrEdit(),
                   );
                 }
 
@@ -1037,7 +1236,15 @@ class _MedScheduleListScreenState extends State<MedScheduleListScreen> {
                         mealText: _mealLabel(meal),
                         mealBg: _mealColor(meal),
                         daysText: daysText,
-                        onToggle: (v) => _toggle(d, v),
+                        onToggle: (v) => _toggle(
+                          d,
+                          v,
+                          title: title,
+                          dose: dose,
+                          hour: hour,
+                          minute: minute,
+                          days: days,
+                        ),
                         onEdit: () => _addOrEdit(doc: d),
                         onMore: () async {
                           final action = await showModalBottomSheet<String>(

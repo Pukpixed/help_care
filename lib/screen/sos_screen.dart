@@ -2,11 +2,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:vibration/vibration.dart';
 
 import 'buddy_pair_screen.dart';
 
@@ -26,7 +28,9 @@ class _SosScreenState extends State<SosScreen> {
 
   bool _sending = false;
   int _countdown = 0;
-  Timer? _timer;
+
+  Timer? _timer; // countdown
+  Timer? _vibeTimer; // vibration loop
 
   String? _patientId;
   String? _caregiverPhone;
@@ -49,7 +53,7 @@ class _SosScreenState extends State<SosScreen> {
   @override
   void dispose() {
     _timer?.cancel();
-    _stopSiren();
+    _stopAlertEffects();
     _player.dispose();
     super.dispose();
   }
@@ -101,21 +105,23 @@ class _SosScreenState extends State<SosScreen> {
 
   // ───── Location permission ─────
   Future<bool> _ensureLocationPermission() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       await Geolocator.openLocationSettings();
       return false;
     }
-    LocationPermission permission = await Geolocator.checkPermission();
+
+    var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) return false;
     }
     if (permission == LocationPermission.deniedForever) return false;
+
     return true;
   }
 
-  // ───── Siren helpers ─────
+  // ───── Alert Effects (Siren + Vibration) ─────
   Future<void> _startSiren() async {
     try {
       await _player.setReleaseMode(ReleaseMode.loop);
@@ -130,12 +136,66 @@ class _SosScreenState extends State<SosScreen> {
     } catch (_) {}
   }
 
+  Future<void> _vibratePulse({
+    int durationMs = 250,
+    int amplitude = 180,
+  }) async {
+    final hasVibrator = await Vibration.hasVibrator() ?? false;
+    if (!hasVibrator) return;
+
+    final hasAmp = await Vibration.hasAmplitudeControl() ?? false;
+    try {
+      if (hasAmp) {
+        Vibration.vibrate(duration: durationMs, amplitude: amplitude);
+      } else {
+        Vibration.vibrate(duration: durationMs);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _startVibrationLoop() async {
+    // สั่นทันที 1 ครั้ง แล้วค่อยสั่นทุก 1 วินาทีระหว่างนับถอยหลัง
+    await _vibratePulse(durationMs: 220, amplitude: 180);
+
+    _vibeTimer?.cancel();
+    _vibeTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+      // สั่นสั้น ๆ แบบเตือนเป็นจังหวะ
+      await _vibratePulse(durationMs: 180, amplitude: 170);
+      // Haptic เพิ่มฟีล (บางเครื่องไม่มี vibrator ก็ยังรู้สึก)
+      HapticFeedback.selectionClick();
+    });
+  }
+
+  Future<void> _stopVibration() async {
+    _vibeTimer?.cancel();
+    _vibeTimer = null;
+    try {
+      await Vibration.cancel();
+    } catch (_) {}
+  }
+
+  Future<void> _startAlertEffects() async {
+    // ตอนเริ่มกดค้าง ให้ haptic หนักนิดหนึ่ง
+    HapticFeedback.mediumImpact();
+    await _startSiren();
+    await _startVibrationLoop();
+  }
+
+  Future<void> _stopAlertEffects() async {
+    await _stopSiren();
+    await _stopVibration();
+  }
+
   // ───── Countdown ─────
   void _startCountdown() {
     if (_sending) return;
+
     setState(() => _countdown = 5);
-    _startSiren();
+
     _timer?.cancel();
+    // เริ่มเสียง+สั่น (ไม่ต้อง await)
+    _startAlertEffects();
+
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (_countdown <= 1) {
         t.cancel();
@@ -148,29 +208,33 @@ class _SosScreenState extends State<SosScreen> {
 
   void _cancelCountdown() {
     _timer?.cancel();
-    _stopSiren();
+    _stopAlertEffects();
     setState(() => _countdown = 0);
   }
 
   // ───── ส่ง SOS ─────
   Future<void> _fireSOS() async {
     if (_sending) return;
+
     setState(() {
       _sending = true;
       _countdown = 0;
     });
-    await _stopSiren();
+
+    // หยุดเสียง/สั่นก่อนเริ่มส่งจริง
+    await _stopAlertEffects();
 
     try {
       if (!await _ensureLocationPermission()) {
         _toast('เปิด Location และอนุญาตการเข้าถึงก่อนนะคะ');
-        setState(() => _sending = false);
+        if (mounted) setState(() => _sending = false);
         return;
       }
 
       final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
+
       final uid = FirebaseAuth.instance.currentUser?.uid;
 
       final sosRef = FirebaseFirestore.instance.collection('sos_alerts');
@@ -221,6 +285,7 @@ class _SosScreenState extends State<SosScreen> {
     final mapUrl = Uri.parse(
       'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
     );
+
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -519,7 +584,7 @@ class _SosScreenState extends State<SosScreen> {
                     'กดค้างที่ปุ่ม SOS เพื่อส่งสัญญาณฉุกเฉิน ระบบจะบันทึกพิกัดปัจจุบัน '
                     'และแจ้งเตือนไปยังผู้ดูแลของคุณ\n'
                     'หากตั้งค่าบัดดี้ไว้ ระบบจะส่ง SOS ไปแจ้งเตือนให้บัดดี้ด้วย\n'
-                    'ระหว่างนับถอยหลังจะมีเสียงไซเรน หากกดผิดสามารถกดยกเลิกได้',
+                    'ระหว่างนับถอยหลังจะมีเสียงไซเรนและการสั่น หากกดผิดสามารถกดยกเลิกได้',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 13,
