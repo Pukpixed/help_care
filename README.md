@@ -1,16 +1,71 @@
-# helpcare_new
+# HelpCare — ระบบติดตามสุขภาพผู้สูงอายุและผู้ป่วยติดเตียง
 
-A new Flutter project.
+HelpCare คือแอปพลิเคชันสำหรับ **ผู้ดูแล (Caregiver)** และ **ครอบครัว** เพื่อช่วยติดตามการดูแลผู้สูงอายุ/ผู้ป่วยติดเตียงแบบเป็นระบบ เช่น การให้ยา การบันทึกกิจวัตร การนัดหมาย เอกสารสุขภาพ และการแจ้งเตือนเหตุฉุกเฉิน (SOS) โดยเน้นการใช้งานง่ายและมีการแจ้งเตือนที่เชื่อถือได้
 
-## Getting Started
+---
 
-This project is a starting point for a Flutter application.
+## 🎯 เป้าหมายของโปรเจค
+- ลดการลืมให้ยา/ทำกิจวัตรสำคัญ ด้วยระบบแจ้งเตือนตามเวลา
+- บันทึกข้อมูลการดูแลรายวันเพื่อดูย้อนหลัง และช่วยการติดตามอาการ
+- ช่วยให้ครอบครัว/ผู้ดูแลร่วมกันดูข้อมูลคนไข้ได้ (หลายผู้ป่วย/หลายผู้ดูแล)
+- สื่อสารเหตุฉุกเฉินได้เร็วขึ้นผ่าน SOS/Buddy
 
-A few resources to get you started if this is your first Flutter project:
+---
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## ✨ ฟีเจอร์หลัก (Core Features)
+- **โปรไฟล์ผู้ป่วย/ผู้สูงอายุ**
+  - เพิ่ม/แก้ไขข้อมูลผู้ป่วย เช่น ชื่อ อายุ โรคประจำตัว ผู้ดูแลหลัก
+- **ตารางการให้ยา + แจ้งเตือน**
+  - ตั้งเวลาเตือนแบบรายวัน/ตามช่วงเวลา  
+  - รองรับเสียงเตือน/สั่น (Local Notifications)
+- **บันทึกกิจวัตรประจำวัน**
+  - เช่น วัดความดัน น้ำตาล อาหาร การขับถ่าย การทำแผล/กายภาพ
+- **สรุปผลรายวัน/รายเดือน/รายปี**
+  - ดูภาพรวมพฤติกรรมและแนวโน้มสุขภาพ
+- **ประวัติสุขภาพย้อนหลัง**
+  - แสดงข้อมูลย้อนหลังจากบันทึกกิจวัตรในรูปแบบที่ดูง่าย
+- **นัดหมาย**
+  - บันทึกวันนัด หมอ/โรงพยาบาล พร้อมแจ้งเตือนล่วงหน้า
+- **เอกสารสุขภาพ**
+  - เก็บรูป/ไฟล์เอกสาร เช่น ใบนัด ผลตรวจ ใบยา
+- **SOS/Buddy**
+  - แจ้งเหตุฉุกเฉินไปยังผู้ดูแล/คนในครอบครัวได้ทันที
+- **ข่าวสารการดูแล**
+  - ลิงก์ไปยังแหล่งข้อมูลด้านสุขภาพ เช่น กรมอนามัย/สสส/โรงพยาบาล
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+---
+
+## 🧩 เทคโนโลยีที่ใช้ (Tech Stack)
+- **Flutter (Android)** — พัฒนา UI/UX และระบบแอป
+- **Firebase Authentication** — เข้าสู่ระบบ (Email/Password, Google Sign-In)
+- **Cloud Firestore** — จัดเก็บข้อมูลผู้ป่วย ตารางยา บันทึกกิจวัตร นัดหมาย
+- **Firebase Cloud Messaging (FCM)** *(ถ้ามี)* — แจ้งเตือนแบบ Push
+- **flutter_local_notifications + timezone** — แจ้งเตือนท้องถิ่นตามเวลา (เสียง/สั่น)
+- **Storage** *(ถ้ามี)* — เก็บรูป/เอกสารสุขภาพ
+
+---
+
+## 🗂 โครงสร้างข้อมูลโดยย่อ (Data Overview)
+ตัวอย่างคอลเลกชันใน Firestore (สามารถปรับตามแบบของโปรเจคได้)
+- `users/` — ข้อมูลผู้ใช้
+- `patients/` — ข้อมูลผู้ป่วย
+- `patients/{patientId}/meds/` — ตารางยา
+- `patients/{patientId}/daily_logs/` — บันทึกกิจวัตรรายวัน
+- `patients/{patientId}/appointments/` — นัดหมาย
+- `patients/{patientId}/documents/` — เอกสารสุขภาพ
+- `sos_events/` — เหตุฉุกเฉิน (ถ้ามีบันทึก)
+
+---
+
+## 🚀 การติดตั้งและรันโปรเจค (Getting Started)
+
+### 1) ติดตั้งสิ่งที่ต้องมี
+- Flutter SDK (stable)
+- Android Studio + Android SDK
+- Emulator หรือโทรศัพท์ Android (เปิด USB Debugging)
+
+### 2) Clone และติดตั้ง dependencies
+```bash
+git clone <YOUR_REPO_URL>
+cd <YOUR_PROJECT_FOLDER>
+flutter pub get
