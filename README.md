@@ -23,10 +23,11 @@
 ---
 
 ## 🛠 เทคโนโลยีที่ใช้
-- Frontend: Flutter / HTML / CSS / JavaScript
-- Backend: Node.js / PHP
-- Database: Firebase / MySQL
+- Frontend: Flutter / CSS / JavaScript
+- Backend: Node.js 
+- Database: Firebase 
 - Cloud Service: Firebase Cloud Messaging (แจ้งเตือน)
+- Andorid only
 
 ---
 
