@@ -15,18 +15,18 @@ final GlobalKey<NavigatorState> navKey = GlobalKey<NavigatorState>();
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ✅ ซ่อน error เฉพาะตอน release (ตอน debug ต้องเห็น error)
+
   if (kReleaseMode) {
     ErrorWidget.builder = (details) => const SizedBox.shrink();
   }
 
-  // ✅ Firebase (จำเป็นก่อนใช้ messaging/firestore)
+
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // ✅ แสดง UI ก่อน (กันค้างสแปลช)
+  
   runApp(const MyApp());
 
-  // ✅ ค่อย init services หลังวาดเฟรมแรก
+ 
   WidgetsBinding.instance.addPostFrameCallback((_) {
     _initServices();
   });
@@ -42,10 +42,9 @@ Future<void> _initServices() async {
     // 🔔 Push (FCM)
     await PushService.instance.init();
 
-    // ✅ token ควรทำหลัง login แต่เรียกไว้ก็ไม่พัง (ถ้าไม่มี user มัน return)
+ 
     await PushService.instance.saveTokenForCurrentUser();
   } catch (e, st) {
-    // ✅ อย่าปล่อยเงียบตอน debug จะได้รู้ว่าค้างเพราะอะไร
     debugPrint('Init services failed: $e');
     debugPrint('$st');
   }
@@ -62,7 +61,7 @@ void _handleLocalNotificationTap(Map<String, String> data) {
   final state = navKey.currentState;
   if (state == null) return;
 
-  // ไม่ต้อง addPostFrameCallback ซ้อนก็ได้ เพราะตอน tap app เปิดอยู่แล้ว
+
   if (collection == 'med_schedules' || type == 'med_schedule') {
     state.pushNamed(AppRoutes.dailyCare);
   } else {
@@ -85,10 +84,10 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
 
-    /// 👉 กดแจ้งเตือนตอนแอปเปิด
+
     PushService.instance.onNotificationTap(_routeFromNotificationData);
 
-    /// 👉 เปิดแอปจาก terminated
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await PushService.instance.handleInitialMessage(
         _routeFromNotificationData,
